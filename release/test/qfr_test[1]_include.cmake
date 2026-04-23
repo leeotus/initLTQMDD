@@ -1,0 +1,5 @@
+if(EXISTS "/home/planner/workshop_ljx/initLTQMDD/release/test/qfr_test[1]_tests.cmake")
+  include("/home/planner/workshop_ljx/initLTQMDD/release/test/qfr_test[1]_tests.cmake")
+else()
+  add_test(qfr_test_NOT_BUILT qfr_test_NOT_BUILT)
+endif()

@@ -1,0 +1,21 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+
+        {
+            "name": "initLTQMDD",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/test/qfr_example",
+            "args": [
+                // "../ltqmdd/circuits/revLib/0410184_170.real",
+                // "../ltqmdd/circuits/revLib/seq_314.real",
+                "../ltqmdd/circuits/revLib/alu4_201.real"
+            ],
+            "cwd": "${workspaceRoot}"
+        }
+    ]
+}

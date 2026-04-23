@@ -1,0 +1,1 @@
+../ltqmdd/circuits/revLib/ex1010_230.real 初始DD大小: 1480, 构造时间: 1.12311s
