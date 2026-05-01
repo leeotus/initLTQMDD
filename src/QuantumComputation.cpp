@@ -1050,7 +1050,6 @@ dd::Edge QuantumComputation::reduceAncillae(dd::Edge& e, std::unique_ptr<dd::Pac
 			dd->decRef(e);
 			e = tmp;
 			
-			// TODO: 看是否可以在这里实现动态sifting最小化
 			if(dd->size(e) > sth) {
 				// 超过阈值	
 				// printf("超过阈值: %lld\r\n", dd->size(e));
