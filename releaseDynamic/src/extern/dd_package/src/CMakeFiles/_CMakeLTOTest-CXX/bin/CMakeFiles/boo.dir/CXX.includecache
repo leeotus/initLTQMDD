@@ -1,0 +1,10 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/flareon/workshop/initLTQMDD/releaseDynamic/src/extern/dd_package/src/CMakeFiles/_CMakeLTOTest-CXX/src/main.cpp
+

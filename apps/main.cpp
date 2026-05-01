@@ -25,6 +25,22 @@ int main(int argc, char **argv) {
     auto initialSize = ddptr->size(graph);
     double duration = (double)(end - start) / CLOCKS_PER_SEC;
     cout << fileName << " " << "初始DD大小: " << initialSize << ", 构造时间: " << duration << "s\r\n";
+    
+    // 应用sifting算法直到收敛
+    start = clock();
+    int prev = initialSize;
+    for(int i = 0; i < 10; ++i) {
+        graph = ddptr->dynamicReorder(graph, qc.initialLayout, dd::Sifting);
+        auto sz = ddptr->size(graph);
+        if(sz == prev) {
+            break;
+        }
+        prev = sz;
+    }
+
+    end = clock();
+    duration = (double)(end - start) / CLOCKS_PER_SEC;
+    cout << fileName << " " << "sifting直到收敛: " << ddptr->size(graph) << ", 花费时间: " << duration << "s\r\n";
 
     return 0;
 }

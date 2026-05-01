@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG CMakeFiles/ltqmdd.dir/main.cpp.o -o ltqmdd  ../src/libqfr.a ../src/extern/dd_package/src/libdd_package.a 
