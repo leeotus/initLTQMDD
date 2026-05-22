@@ -77,5 +77,6 @@
         "terminalCursor.foreground": "#FF0000",
         "minimap.background": "#00000088",
         "scrollbar.shadow": "#00000088"
-    }
+    },
+    "C_Cpp.errorSquiggles": "enabled"
 }

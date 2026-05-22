@@ -42,5 +42,16 @@ int main(int argc, char **argv) {
     duration = (double)(end - start) / CLOCKS_PER_SEC;
     cout << fileName << " " << "sifting直到收敛: " << ddptr->size(graph) << ", 花费时间: " << duration << "s\r\n";
 
+    std::string name{};
+    std::size_t pos = fileName.find_last_of('/');
+    if (pos != std::string::npos) {
+        name = fileName.substr(pos + 1);
+        pos = name.find_first_of('.');
+        if (pos != std::string::npos) {
+            name = name.substr(0, pos);
+        }
+    }
+    std::string out_file = "out_" + name + ".qasm";
+    qc.dump(out_file, qc::Format::OpenQASM);
     return 0;
 }
