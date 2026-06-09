@@ -469,9 +469,12 @@ namespace dd {
 				return std::get<0>(lbSifting(in, varMap));
 			}
 			case Window3: return window3(in, varMap);
-			case linearSifting: return linearAndSiftingAux(in, varMap, 1);
-			case lbLinearSifting: return lbLinearAndSiftingAux(in, varMap);
-			case mixlinearSifting: return mixLinearAndSiftingAux(in, varMap, 1);
+			case upperLinearSifting: return linearAndSiftingAux(in, varMap, UPLT, PruningStrategy::NoPruning);
+			case lowerLinearSifting: return linearAndSiftingAux(in, varMap, LOWLT, PruningStrategy::NoPruning);
+			case mixLinearSifting: return mixLinearAndSiftingAux(in, varMap, 1, PruningStrategy::NoPruning);
+			case lbUpperLinearSifting: return linearAndSiftingAux(in, varMap, UPLT, PruningStrategy::LowerBound);
+			case lbLowerLinearSifting: return linearAndSiftingAux(in, varMap, LOWLT, PruningStrategy::LowerBound);
+			case lbMixLinearSifting: return mixLinearAndSiftingAux(in, varMap, 1, PruningStrategy::LowerBound);
 		}
 
 		return in;

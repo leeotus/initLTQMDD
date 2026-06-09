@@ -20,7 +20,6 @@ int main(int argc, char **argv) {
     qc::QuantumComputation qc(fileName);
     auto ddptr = make_unique<dd::Package>();
 
-    // 构造DD
     start = clock();
     auto graph = qc.buildFunctionality(ddptr);
     end = clock();
@@ -28,49 +27,123 @@ int main(int argc, char **argv) {
     auto initialSize = ddptr->size(graph);
     double duration = (double)(end - start) / CLOCKS_PER_SEC;
     cout << fileName << " 初始DD大小: " << initialSize << ", 构造时间: " << duration << "s" << endl;
-
-    // 保存初始layout用于对比
-    qc::permutationMap siftingMap = qc.initialLayout;
-    qc::permutationMap lbSiftingMap = qc.initialLayout;
+    cout << endl;
 
     // ========== 普通 Sifting ==========
-    auto ddSift = make_unique<dd::Package>();
-    auto graphSift = qc.buildFunctionality(ddSift);
-
-    start = clock();
-    int prev = ddSift->size(graphSift);
-    for (int i = 0; i < 10; ++i) {
-        graphSift = ddSift->dynamicReorder(graphSift, siftingMap, dd::Sifting);
-        auto sz = (int)ddSift->size(graphSift);
-        if (sz == prev) break;
-        prev = sz;
+    {
+        qc::permutationMap map = qc.initialLayout;
+        auto dd = make_unique<dd::Package>();
+        auto g = qc.buildFunctionality(dd);
+        start = clock();
+        int prev = dd->size(g);
+        for (int i = 0; i < 10; ++i) {
+            g = dd->dynamicReorder(g, map, dd::Sifting);
+            auto sz = (int)dd->size(g);
+            if (sz == prev) break;
+            prev = sz;
+        }
+        end = clock();
+        duration = (double)(end - start) / CLOCKS_PER_SEC;
+        cout << "  Sifting收敛:          " << dd->size(g) << ", 时间: " << duration << "s" << endl;
     }
-    end = clock();
-    duration = (double)(end - start) / CLOCKS_PER_SEC;
-    cout << "  Sifting收敛: " << ddSift->size(graphSift) << ", 时间: " << duration << "s" << endl;
 
     // ========== Lower Bound Sifting ==========
-    auto ddLB = make_unique<dd::Package>();
-    auto graphLB = qc.buildFunctionality(ddLB);
-
-    start = clock();
-    prev = ddLB->size(graphLB);
-    for (int i = 0; i < 10; ++i) {
-        graphLB = ddLB->dynamicReorder(graphLB, lbSiftingMap, dd::LBSifting);
-        auto sz = (int)ddLB->size(graphLB);
-        if (sz == prev) break;
-        prev = sz;
+    {
+        qc::permutationMap map = qc.initialLayout;
+        auto dd = make_unique<dd::Package>();
+        auto g = qc.buildFunctionality(dd);
+        start = clock();
+        int prev = dd->size(g);
+        for (int i = 0; i < 10; ++i) {
+            g = dd->dynamicReorder(g, map, dd::LBSifting);
+            auto sz = (int)dd->size(g);
+            if (sz == prev) break;
+            prev = sz;
+        }
+        end = clock();
+        duration = (double)(end - start) / CLOCKS_PER_SEC;
+        cout << "  Lower Bound Sifting收敛:       " << dd->size(g) << ", 时间: " << duration << "s" << endl;
     }
-    end = clock();
-    duration = (double)(end - start) / CLOCKS_PER_SEC;
-    cout << "  LB Sifting收敛: " << ddLB->size(graphLB) << ", 时间: " << duration << "s" << endl;
 
-    // 对比
+    // ========== upper Linear Sifting ==========
+    {
+        qc::permutationMap map = qc.initialLayout;
+        auto dd = make_unique<dd::Package>();
+        dd->xorInit(map);
+        auto g = qc.buildFunctionality(dd);
+        start = clock();
+        int prev = dd->size(g);
+        for (int i = 0; i < 10; ++i) {
+            g = dd->dynamicReorder(g, map, dd::upperLinearSifting);
+            auto sz = (int)dd->size(g);
+            if (sz == prev) break;
+            prev = sz;
+        }
+        end = clock();
+        duration = (double)(end - start) / CLOCKS_PER_SEC;
+        cout << "  Upper Linear Sifting收敛:   " << dd->size(g) << ", 时间: " << duration << "s" << endl;
+    }
+
+    // ========== Lower Linear Sifting ==========
+    {
+        qc::permutationMap map = qc.initialLayout;
+        auto dd = make_unique<dd::Package>();
+        dd->xorInit(map);
+        auto g = qc.buildFunctionality(dd);
+        start = clock();
+        int prev = dd->size(g);
+        for (int i = 0; i < 10; ++i) {
+            g = dd->dynamicReorder(g, map, dd::lowerLinearSifting);
+            auto sz = (int)dd->size(g);
+            if (sz == prev) break;
+            prev = sz;
+        }
+        end = clock();
+        duration = (double)(end - start) / CLOCKS_PER_SEC;
+        cout << "  Lower Linear Sifting收敛:   " << dd->size(g) << ", 时间: " << duration << "s" << endl;
+    }
+
+    // ========== Mix Linear Sifting ==========
+    {
+        qc::permutationMap map = qc.initialLayout;
+        auto dd = make_unique<dd::Package>();
+        dd->xorInit(map);
+        auto g = qc.buildFunctionality(dd);
+        start = clock();
+        int prev = dd->size(g);
+        for (int i = 0; i < 10; ++i) {
+            g = dd->dynamicReorder(g, map, dd::mixLinearSifting);
+            auto sz = (int)dd->size(g);
+            if (sz == prev) break;
+            prev = sz;
+        }
+        end = clock();
+        duration = (double)(end - start) / CLOCKS_PER_SEC;
+        cout << "  Mix Linear Sifting收敛:     " << dd->size(g) << ", 时间: " << duration << "s" << endl;
+    }
+
+    // ========== LB Mix Linear Sifting ==========
+    {
+        qc::permutationMap map = qc.initialLayout;
+        auto dd = make_unique<dd::Package>();
+        dd->xorInit(map);
+        auto g = qc.buildFunctionality(dd);
+        start = clock();
+        int prev = dd->size(g);
+        for (int i = 0; i < 10; ++i) {
+            g = dd->dynamicReorder(g, map, dd::lbMixLinearSifting);
+            auto sz = (int)dd->size(g);
+            if (sz == prev) break;
+            prev = sz;
+        }
+        end = clock();
+        duration = (double)(end - start) / CLOCKS_PER_SEC;
+        cout << "  LB Mix Linear Sifting收敛: " << dd->size(g) << ", 时间: " << duration << "s" << endl;
+    }
+
     cout << endl;
     cout << "=== 结果对比 ===" << endl;
-    cout << "初始大小:      " << initialSize << endl;
-    cout << "Sifting:       " << ddSift->size(graphSift) << endl;
-    cout << "LB Sifting:    " << ddLB->size(graphLB) << endl;
+    cout << "初始大小: " << initialSize << endl;
 
     return 0;
 }

@@ -172,7 +172,8 @@ namespace dd {
     
     Edge Package::linearAndSiftingAux(Edge in, 
     std::map<unsigned short, unsigned short>& varMap,
-    bool fg
+    bool upOrLow,
+    PruningStrategy pruning
     ) {
         //
         const auto n = static_cast<short>(in.p->v + 1); //变量个数
@@ -233,7 +234,7 @@ namespace dd {
                 // std::clog<<"全部向下; "<<std::endl;
                 
                 // std::clog<<"下: ";
-                moveDown = linearAndSiftingDown(pos, in, varMap, curMoveV);
+                moveDown = linearAndSiftingDown(pos, in, varMap, curMoveV, upOrLow, pruning);
                 // std::clog<<"好: ";
                 linearAndSiftingBackward(optimalPos, in, varMap, moveDown);
                 // --optimalPos;
@@ -243,7 +244,7 @@ namespace dd {
                 //
                 // std::clog<<"全部向上; "<<std::endl;
                 // std::clog<<"上: ";
-                moveUp = linearAndSiftingUp(pos, in, varMap, curMoveV);
+                moveUp = linearAndSiftingUp(pos, in, varMap, curMoveV, upOrLow, pruning);
                 // std::clog<<"好: ";
                 linearAndSiftingBackward(optimalPos, in, varMap, moveUp);
                 // std::clog<<"    原来位置和最佳位置："<<originalPos<<"and"<<optimalPos<<"    ";
@@ -252,7 +253,7 @@ namespace dd {
                 // std::clog<<"先下后上; "<<std::endl;
                 // std::clog<<pos<<' ';
                 // std::clog<<"下: ";
-                moveDown = linearAndSiftingDown(pos, in, varMap, curMoveV);
+                moveDown = linearAndSiftingDown(pos, in, varMap, curMoveV, upOrLow, pruning);
                 // if(moveDown.back().index != pos+1) {
                 //     throw std::logic_error("检查aux-lsDown");
                 // }
@@ -262,7 +263,7 @@ namespace dd {
                 // if(min != size(in)) throw std::logic_error("undo 错误 ");
                 // std::clog<<pos<<' ';
                 // std::clog<<"上: ";
-                moveUp = linearAndSiftingUp(pos, in, varMap, moveUp);
+                moveUp = linearAndSiftingUp(pos, in, varMap, moveUp, upOrLow, pruning);
                 // std::clog<<pos<<' ';
                 // std::clog<<"好: ";
                 linearAndSiftingBackward(optimalPos, in, varMap, moveUp);
@@ -275,7 +276,7 @@ namespace dd {
                 
                 // std::clog<<pos<<' ';
                 // std::clog<<"上: ";
-                moveUp = linearAndSiftingUp(pos, in, varMap, curMoveV);
+                moveUp = linearAndSiftingUp(pos, in, varMap, curMoveV, upOrLow, pruning);
                 // if(moveUp.back().index != pos) {
                 //     throw std::logic_error("检查aux-lsUp");
                 // }
@@ -288,7 +289,7 @@ namespace dd {
                 
                 // std::clog<<pos<<' ';
                 // std::clog<<"下: ";
-                moveDown = linearAndSiftingDown(pos, in, varMap, moveDown);
+                moveDown = linearAndSiftingDown(pos, in, varMap, moveDown, upOrLow, pruning);
                 
                 // std::clog<<pos<<' ';
                 // std::clog<<"好: ";
@@ -423,7 +424,9 @@ namespace dd {
         short &pos, // variable index
         Edge in, 
         std::map<unsigned short, unsigned short>& Map, 
-        std::list<Move> &prevMoves
+        std::list<Move> &prevMoves,
+        bool upOrLow,
+        PruningStrategy pruning
         ) {
         //判断pos与传入的prevMoves是否冲突
         // if(!prevMoves.empty()){
@@ -434,15 +437,20 @@ namespace dd {
         //
         const auto n = static_cast<short>(in.p->v + 1);
         std::list<Move> moves(prevMoves);
+        uint64_t best = size(in);
 
         //
         // moves = prevMoves;
 
         while (pos+1 < n ) {
+            if (pruning == PruningStrategy::LowerBound) {
+                uint64_t lb = computeLowerBoundUp(Map, pos);
+                if (lb > best) break;
+            }
 			// std::clog << "向上尝试";
             exchangeBaseCase(pos+1, in, Map); //先对pos，pos-1执行swap
             auto ex_size = size(in);
-			linearInPlace(pos+1, in, Map); //再pos，pos-1执行L.T.
+			linearInPlace(pos+1, in, Map, 1, upOrLow); //再pos，pos-1执行L.T.
 			auto lt_size = size(in);
             // std::clog << ex_size <<","<<lt_size<<" ";
 
@@ -454,7 +462,7 @@ namespace dd {
             if(ex_size <= lt_size){ //swap效果更好
 				//** 抵消lt
 				// std::clog << "-";
-				linearInPlace(pos+1, in, Map);
+				linearInPlace(pos+1, in, Map, 1, upOrLow);
                 // auto lt_lt_size = size(in);
                 // if(lt_lt_size!=ex_size) {
                 //     std::clog<< lt_lt_size<<", "<<ex_size;
@@ -473,10 +481,11 @@ namespace dd {
                 // xorSeq.push_back(curXOR);
 
                 move.ddsize = lt_size;
-                move.optype = LINEAR_TRANSFORM_MOVE;
+                move.optype = upOrLow ? UP_LINEAR_TRANSFORM_MOVE : LOW_LINEAR_TRANSFORM_MOVE;
 			}
             auto lastSize = moves.back().ddsize;
             moves.push_back(move);
+            if(move.ddsize < best) best = move.ddsize;
 
             // std::clog << "u" << move.ddsize << " ";
             assert(is_locally_consistent_dd(in));
@@ -494,16 +503,22 @@ namespace dd {
         short &pos, // variable index
         Edge in, 
         std::map<unsigned short, unsigned short>& Map, 
-        std::list<Move> &prevMoves
+        std::list<Move> &prevMoves,
+        PruningStrategy pruning
         ) {
         //
         const auto n = static_cast<short>(in.p->v + 1);
         std::list<Move> moves(prevMoves);
+        uint64_t best = size(in);
 
         //
         // moves = prevMoves;
 
         while (pos+1 < n ) {
+            if (pruning == PruningStrategy::LowerBound) {
+                uint64_t lb = computeLowerBoundUp(Map, pos);
+                if (lb > best) break;
+            }
 			// std::clog << "向上尝试";
             exchangeBaseCase(pos+1, in, Map); //先对pos，pos-1执行swap
             auto ex_size = size(in);
@@ -539,6 +554,7 @@ namespace dd {
 			}
             auto lastSize = moves.back().ddsize;
             moves.push_back(move);
+            if(move.ddsize < best) best = move.ddsize;
 
             // std::clog << "u" << move.ddsize << " ";
             assert(is_locally_consistent_dd(in));
@@ -625,7 +641,8 @@ namespace dd {
         short &pos,  
         Edge in, 
         std::map<unsigned short, unsigned short>& Map, 
-        std::list<Move> &prevMoves
+        std::list<Move> &prevMoves,
+        PruningStrategy pruning
     ) {
         std::list<Move> moves(prevMoves);
         uint64_t best = size(in);
@@ -633,6 +650,10 @@ namespace dd {
         // printMoves(prevMoves);
 
         while(pos > 0) {
+            if (pruning == PruningStrategy::LowerBound) {
+                uint64_t lb = computeLowerBoundDown(Map, pos);
+                if (lb > best) break;
+            }
             exchangeBaseCase(pos, in, Map); //先对pos，pos-1执行swap
             auto ex_size = size(in);
 			linearInPlace(pos, in, Map, 1, LOWLT); //low lt
@@ -690,7 +711,9 @@ namespace dd {
         short &pos,  
         Edge in, 
         std::map<unsigned short, unsigned short>& Map, 
-        std::list<Move> &prevMoves
+        std::list<Move> &prevMoves,
+        bool upOrLow,
+        PruningStrategy pruning
         ) {
         //判断pos与传入的prevMoves是否冲突
         // if(!prevMoves.empty() && prevMoves.back().index-1 != pos){
@@ -702,15 +725,20 @@ namespace dd {
         
         //
         std::list<Move> moves(prevMoves);
+        uint64_t best = size(in);
 
         //
         // moves = prevMoves;
 
         while (pos > 0) {
+            if (pruning == PruningStrategy::LowerBound) {
+                uint64_t lb = computeLowerBoundDown(Map, pos);
+                if (lb > best) break;
+            }
 			//std::clog << "向下尝试";
             exchangeBaseCase(pos, in, Map); //先对pos，pos-1执行swap
             auto ex_size = size(in);
-			linearInPlace(pos, in, Map); //再pos，pos-1执行L.T.
+			linearInPlace(pos, in, Map, 1, upOrLow); //再pos，pos-1执行L.T.
 			auto lt_size = size(in);
 
             Move move;
@@ -721,7 +749,7 @@ namespace dd {
             if(ex_size <= lt_size){ //swap效果更好
 				//** 抵消lt
 				// std::clog << "-";
-				linearInPlace(pos, in, Map);
+				linearInPlace(pos, in, Map, 1, upOrLow);
                 // auto lt_lt_size = size(in);
                 // if(lt_lt_size!=ex_size) {
                 //     std::clog<< lt_lt_size<<", "<<ex_size;
@@ -737,13 +765,14 @@ namespace dd {
                 // xorSeq.push_back(curXOR);
 
                 move.ddsize = lt_size;
-                move.optype = LINEAR_TRANSFORM_MOVE;
+                move.optype = upOrLow ? UP_LINEAR_TRANSFORM_MOVE : LOW_LINEAR_TRANSFORM_MOVE;
 
                 //debug
                 // std::clog<<"lt better"<<std::endl;
 			}
             auto lastSize = moves.back().ddsize;
             moves.push_back(move);
+            if(move.ddsize < best) best = move.ddsize;
 
             assert(is_locally_consistent_dd(in));
             --pos; //变量位置下移一位 
@@ -1221,7 +1250,8 @@ namespace dd {
 
     Edge Package::mixLinearAndSiftingAux(Edge in, 
     std::map<unsigned short, unsigned short>& varMap,
-    bool fg
+    bool fg,
+    PruningStrategy pruning
     ) {
         //
         const auto n = static_cast<short>(in.p->v + 1); //变量个数
@@ -1282,7 +1312,7 @@ namespace dd {
                 // std::clog<<"全部向下; "<<std::endl;
                 
                 // std::clog<<"下: ";
-                moveDown = mixLinearAndSiftingDown(pos, in, varMap, curMoveV);
+                moveDown = mixLinearAndSiftingDown(pos, in, varMap, curMoveV, pruning);
                 // std::clog<<"好: ";
                 linearAndSiftingBackward(optimalPos, in, varMap, moveDown);
                 // --optimalPos;
@@ -1292,7 +1322,7 @@ namespace dd {
                 //
                 // std::clog<<"全部向上; "<<std::endl;
                 // std::clog<<"上: ";
-                moveUp = mixLinearAndSiftingUp(pos, in, varMap, curMoveV);
+                moveUp = mixLinearAndSiftingUp(pos, in, varMap, curMoveV, pruning);
                 // std::clog<<"好: ";
                 linearAndSiftingBackward(optimalPos, in, varMap, moveUp);
                 // std::clog<<"    原来位置和最佳位置："<<originalPos<<"and"<<optimalPos<<"    ";
@@ -1301,7 +1331,7 @@ namespace dd {
                 // std::clog<<"先下后上; "<<std::endl;
                 // std::clog<<pos<<' ';
                 // std::clog<<"下: ";
-                moveDown = mixLinearAndSiftingDown(pos, in, varMap, curMoveV);
+                moveDown = mixLinearAndSiftingDown(pos, in, varMap, curMoveV, pruning);
                 // if(moveDown.back().index != pos+1) {
                 //     throw std::logic_error("检查aux-lsDown");
                 // }
@@ -1311,7 +1341,7 @@ namespace dd {
                 // if(min != size(in)) throw std::logic_error("undo 错误 ");
                 // std::clog<<pos<<' ';
                 // std::clog<<"上: ";
-                moveUp = mixLinearAndSiftingUp(pos, in, varMap, moveUp);
+                moveUp = mixLinearAndSiftingUp(pos, in, varMap, moveUp, pruning);
                 // std::clog<<pos<<' ';
                 // std::clog<<"好: ";
                 linearAndSiftingBackward(optimalPos, in, varMap, moveUp);
@@ -1324,7 +1354,7 @@ namespace dd {
                 
                 // std::clog<<pos<<' ';
                 // std::clog<<"上: ";
-                moveUp = mixLinearAndSiftingUp(pos, in, varMap, curMoveV);
+                moveUp = mixLinearAndSiftingUp(pos, in, varMap, curMoveV, pruning);
                 // if(moveUp.back().index != pos) {
                 //     throw std::logic_error("检查aux-lsUp");
                 // }
@@ -1337,7 +1367,7 @@ namespace dd {
                 
                 // std::clog<<pos<<' ';
                 // std::clog<<"下: ";
-                moveDown = mixLinearAndSiftingDown(pos, in, varMap, moveDown);
+                moveDown = mixLinearAndSiftingDown(pos, in, varMap, moveDown, pruning);
                 
                 // std::clog<<pos<<' ';
                 // std::clog<<"好: ";

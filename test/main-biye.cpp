@@ -103,9 +103,9 @@ int main(int argc, char *argv[]) {
 	if(algoMode == 1) {
 		roDD = dd_new->dynamicReorder(functionality_new, varMap, dd::DynamicReorderingStrategy::Sifting);
 	} else if(algoMode == 2) {
-		roDD = dd_new->dynamicReorder(functionality_new, varMap, dd::DynamicReorderingStrategy::linearSifting);
+		roDD = dd_new->dynamicReorder(functionality_new, varMap, dd::DynamicReorderingStrategy::upperLinearSifting);
 	} else {
-		roDD = dd_new->dynamicReorder(functionality_new, varMap, dd::DynamicReorderingStrategy::lbLinearSifting);
+		roDD = dd_new->dynamicReorder(functionality_new, varMap, dd::DynamicReorderingStrategy::lowerLinearSifting);
 	}
 	// auto ltreod = dd_new->dynamicReorder(functionality_new, ltvarMap, dd::DynamicReorderingStrategy::lbLinearSifting);
 	end=clock();
@@ -123,9 +123,9 @@ int main(int argc, char *argv[]) {
 		if(algoMode == 1) {
 			roDD = dd_new->dynamicReorder(functionality_new, varMap, dd::DynamicReorderingStrategy::Sifting);
 		} else if(algoMode == 2) {
-			roDD = dd_new->dynamicReorder(functionality_new, varMap, dd::DynamicReorderingStrategy::linearSifting);
+			roDD = dd_new->dynamicReorder(functionality_new, varMap, dd::DynamicReorderingStrategy::upperLinearSifting);
 		} else {
-			roDD = dd_new->dynamicReorder(functionality_new, varMap, dd::DynamicReorderingStrategy::lbLinearSifting);
+			roDD = dd_new->dynamicReorder(functionality_new, varMap, dd::DynamicReorderingStrategy::lowerLinearSifting);
 		}
 		cur_size = dd_new->size(roDD);
 		if(cur_size == old_lssize) {

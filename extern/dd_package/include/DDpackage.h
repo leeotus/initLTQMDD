@@ -147,7 +147,14 @@ namespace dd {
     };
 
 	enum DynamicReorderingStrategy {
-		None, Sifting, LBSifting, Random, Window3, linearSifting, lbLinearSifting, mixlinearSifting
+		None, Sifting, LBSifting, Random, Window3,
+		upperLinearSifting, lowerLinearSifting, mixLinearSifting,
+		lbUpperLinearSifting, lbLowerLinearSifting, lbMixLinearSifting
+	};
+
+	enum class PruningStrategy {
+		NoPruning,       // 不使用任何剪枝
+		LowerBound,      // 使用 lower bound 剪枝
 	};
 
 	enum Mode {
@@ -354,18 +361,18 @@ namespace dd {
 		bool matIsEqual(bool mat[MAXN][MAXN]);
 		Edge linearAndSiftingAux(Edge in, std::map<unsigned short, unsigned short>& varMap);
 		Edge lbLinearAndSiftingAux(Edge in, std::map<unsigned short, unsigned short>& varMap);
-		Edge linearAndSiftingAux(Edge in, std::map<unsigned short, unsigned short>& varMap, bool fg);
-		Edge mixLinearAndSiftingAux(Edge in, std::map<unsigned short, unsigned short>& varMap, bool fg);
+		Edge linearAndSiftingAux(Edge in, std::map<unsigned short, unsigned short>& varMap, bool upOrLow, PruningStrategy pruning = PruningStrategy::NoPruning);
+		Edge mixLinearAndSiftingAux(Edge in, std::map<unsigned short, unsigned short>& varMap, bool fg, PruningStrategy pruning = PruningStrategy::NoPruning);
 		Edge linearAndSiftingAux2(Edge in, std::map<unsigned short, unsigned short>& varMap, bool fg);
 		std::list<Move> undoMoves(short &pos, Edge in, std::map<unsigned short, unsigned short>& Map, std::list<Move> &moves);
 		std::list<Move> exchangMoves(short &pos, Edge in, std::map<unsigned short, unsigned short>& Map, std::list<Move> &moves);
         int linearAndSiftingBackward(short &optimalPos, Edge in, std::map<unsigned short, unsigned short>& Map, std::list<Move> &moves);
-        std::list<Move> linearAndSiftingDown(short &pos, Edge in, std::map<unsigned short, unsigned short>& Map, std::list<Move> &prevMoves);
+        std::list<Move> linearAndSiftingDown(short &pos, Edge in, std::map<unsigned short, unsigned short>& Map, std::list<Move> &prevMoves, bool upOrLow = LOWLT, PruningStrategy pruning = PruningStrategy::NoPruning);
         std::list<Move> lbLinearAndSiftingDown(short &pos, Edge in, std::map<unsigned short, unsigned short>& Map, std::list<Move> &prevMoves);
-        std::list<Move> mixLinearAndSiftingDown(short &pos, Edge in, std::map<unsigned short, unsigned short>& Map, std::list<Move> &prevMoves);
-		std::list<Move> linearAndSiftingUp(short &pos, Edge in, std::map<unsigned short, unsigned short>& Map, std::list<Move> &prevMoves);
+        std::list<Move> mixLinearAndSiftingDown(short &pos, Edge in, std::map<unsigned short, unsigned short>& Map, std::list<Move> &prevMoves, PruningStrategy pruning = PruningStrategy::NoPruning);
+		std::list<Move> linearAndSiftingUp(short &pos, Edge in, std::map<unsigned short, unsigned short>& Map, std::list<Move> &prevMoves, bool upOrLow = LOWLT, PruningStrategy pruning = PruningStrategy::NoPruning);
 		std::list<Move> lbLinearAndSiftingUp(short &pos, Edge in, std::map<unsigned short, unsigned short>& Map, std::list<Move> &prevMoves);
-		std::list<Move> mixLinearAndSiftingUp(short &pos, Edge in, std::map<unsigned short, unsigned short>& Map, std::list<Move> &prevMoves);
+		std::list<Move> mixLinearAndSiftingUp(short &pos, Edge in, std::map<unsigned short, unsigned short>& Map, std::list<Move> &prevMoves, PruningStrategy pruning = PruningStrategy::NoPruning);
 		std::tuple<Edge, unsigned int, unsigned int> linearSiftingv1(Edge in, std::map<unsigned short, unsigned short>& varMap);
 		void qmdd2ltqmdd(Edge in, std::map<unsigned short, unsigned short>& varMap, bool Mat[MAXN][MAXN]);
 		void ltqmdd2qmdd(Edge in, std::map<unsigned short, unsigned short>& varMap, bool Mat[MAXN][MAXN]);
