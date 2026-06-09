@@ -1050,16 +1050,16 @@ dd::Edge QuantumComputation::reduceAncillae(dd::Edge& e, std::unique_ptr<dd::Pac
 			dd->decRef(e);
 			e = tmp;
 			
-			if(dd->size(e) > sth) {
-				// 超过阈值	
-				// printf("超过阈值: %lld\r\n", dd->size(e));
-				e = dd->dynamicReorder(e, this->initialLayout, dd::DynamicReorderingStrategy::Sifting);
-				// printf("动态缩小后: %lld\r\n", dd->size(e));
-				sth = (sth * 2 > dd->size(e) * 1.5) ? (sth * 2) : (dd->size(e) * 1.5);
-				e = reduceAncillae(e, dd);
-				dd->garbageCollect();
-			}
-			previousSize = dd->size(e);
+			// if(dd->size(e) > sth) {
+			// 	// 超过阈值	
+			// 	// printf("超过阈值: %lld\r\n", dd->size(e));
+			// 	e = dd->dynamicReorder(e, this->initialLayout, dd::DynamicReorderingStrategy::Sifting);
+			// 	// printf("动态缩小后: %lld\r\n", dd->size(e));
+			// 	sth = (sth * 2 > dd->size(e) * 1.5) ? (sth * 2) : (dd->size(e) * 1.5);
+			// 	e = reduceAncillae(e, dd);
+			// 	dd->garbageCollect();
+			// }
+			// previousSize = dd->size(e);
 
 			dd->garbageCollect();
 		}

@@ -147,7 +147,7 @@ namespace dd {
     };
 
 	enum DynamicReorderingStrategy {
-		None, Sifting, Random, Window3, linearSifting, lbLinearSifting, mixlinearSifting
+		None, Sifting, LBSifting, Random, Window3, linearSifting, lbLinearSifting, mixlinearSifting
 	};
 
 	enum Mode {
@@ -318,6 +318,7 @@ namespace dd {
 	    void exchangeBaseCase2(NodePtr p, unsigned short index, Edge in);
 	    Edge dynamicReorder(Edge in, std::map<unsigned short, unsigned short>& varMap, DynamicReorderingStrategy strat = None);
 	    std::tuple<Edge, unsigned int, unsigned int> sifting(Edge in, std::map<unsigned short, unsigned short>& varMap);
+	    std::tuple<Edge, unsigned int, unsigned int> lbSifting(Edge in, std::map<unsigned short, unsigned short>& varMap);
 		Edge random(Edge in, std::map<unsigned short, unsigned short> &varMap, std::mt19937_64 &mt);
 		Edge window3(Edge in, std::map<unsigned short, unsigned short>& varMap);
 		

@@ -1,12 +1,16 @@
 set(APP_MAIN_NAME "ltqmdd")
+set(LB_SIFTING_NAME "lb_sifting")
 add_executable(${PROJECT_NAME}_app ${CMAKE_CURRENT_SOURCE_DIR}/app.cpp)
 add_executable(${APP_MAIN_NAME} ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp)
+add_executable(${LB_SIFTING_NAME} ${CMAKE_CURRENT_SOURCE_DIR}/lb_main.cpp)
 
 target_compile_features(${PROJECT_NAME}_app PUBLIC cxx_std_14)
 target_compile_features(${APP_MAIN_NAME} PUBLIC cxx_std_14)
+target_compile_features(${LB_SIFTING_NAME} PUBLIC cxx_std_14)
 
 set_target_properties(${PROJECT_NAME}_app PROPERTIES CXX_EXTENSIONS OFF)
 set_target_properties(${APP_MAIN_NAME} PROPERTIES CXX_EXTENSIONS OFF)
+set_target_properties(${LB_SIFTING_NAME} PROPERTIES CXX_EXTENSIONS OFF)
 
 
 target_link_libraries(${APP_MAIN_NAME} PUBLIC ${PROJECT_NAME})
@@ -27,6 +31,20 @@ add_custom_command(TARGET ${APP_MAIN_NAME}
                 #    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/circuits/ $<TARGET_FILE_DIR:${APP_MAIN_NAME}>/circuits
                    COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE_DIR:${APP_MAIN_NAME}>/circuits ${CMAKE_BINARY_DIR}/circuits
                    COMMENT "Copying circuits and creating symlinks for ${APP_MAIN_NAME}"
+                   VERBATIM)
+
+target_link_libraries(${LB_SIFTING_NAME} PUBLIC ${PROJECT_NAME})
+if(MSVC)
+        target_compile_options(${LB_SIFTING_NAME} PUBLIC "/W4" "$<$<CONFIG:RELEASE>:/O2 /GL>")
+        target_link_options(${LB_SIFTING_NAME} PUBLIC "$<$<CONFIG:Release>:/LTCG>")
+else()
+        target_compile_options(${LB_SIFTING_NAME} PRIVATE -Wall $<$<CONFIG:DEBUG>:-g3 -Og -Wextra -Wpedantic -pedantic> $<$<CONFIG:RELEASE>:-O3 -mtune=native -march=native -g>)
+endif()
+
+add_custom_command(TARGET ${LB_SIFTING_NAME}
+                   POST_BUILD
+                   COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE_DIR:${LB_SIFTING_NAME}>/${LB_SIFTING_NAME} ${CMAKE_BINARY_DIR}/${LB_SIFTING_NAME}
+                   COMMENT "Creating symlink for ${LB_SIFTING_NAME}"
                    VERBATIM)
 
 target_link_libraries(${PROJECT_NAME}_app PRIVATE ${PROJECT_NAME})

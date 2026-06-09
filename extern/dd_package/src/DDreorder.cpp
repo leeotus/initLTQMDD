@@ -465,6 +465,9 @@ namespace dd {
                     std::mt19937_64 mt;
                     return random(in, varMap, mt);
                 }
+			case LBSifting: {
+				return std::get<0>(lbSifting(in, varMap));
+			}
 			case Window3: return window3(in, varMap);
 			case linearSifting: return linearAndSiftingAux(in, varMap, 1);
 			case lbLinearSifting: return lbLinearAndSiftingAux(in, varMap);
@@ -655,7 +658,157 @@ namespace dd {
 		return {in, total_min, total_max}; //返回DD指针和这次sifting过程中最大和最小的DD size
 	}
 
-// // 我的测试
+	std::tuple<Edge, unsigned int, unsigned int> Package::lbSifting(Edge in, std::map<unsigned short, unsigned short>& varMap) {
+		const auto n = static_cast<short>(in.p->v);
+
+		std::vector<bool> free(n, true);
+
+		computeMatrixProperties = Disabled;
+		Edge root{in};
+
+		unsigned int total_max = size(in);
+		unsigned int total_min = total_max;
+
+        short pos = -1;
+        for (int i = 0; i < n; ++i) {
+            assert(is_globally_consistent_dd(in));
+            unsigned long min = size(in);
+            unsigned long max = 0;
+
+            for (short j = 0; j < n; j++) {
+                if (free.at(varMap[j]) && active.at(varMap[j]) > max) {
+                    max = active.at(varMap[j]);
+                    pos = j;
+                    assert(max <= std::numeric_limits<int>::max());
+                }
+            }
+            free.at(varMap[pos]) = false;
+            short optimalPos = pos;
+            short originalPos = pos;
+
+            if (pos < n / 2) {  // variable is in lower half -> sifting to bottom first
+                // sifting down with lower bound pruning
+                while (pos > 0) {
+                    uint64_t lb = computeLowerBoundDown(varMap, pos);
+                    if (lb > min) break;
+
+                    exchangeBaseCase(pos, in, varMap);
+                    auto in_size = size(in);
+                    total_min = std::min(total_min, in_size);
+                    total_max = std::max(total_max, in_size);
+                    assert(is_locally_consistent_dd(in));
+                    --pos;
+                    if (in_size < min) {
+                        min = in_size;
+                        optimalPos = pos;
+                    }
+                }
+
+                // sifting up with lower bound pruning
+                while (pos < n - 1) {
+                    uint64_t lb = computeLowerBoundUp(varMap, pos);
+                    if (lb > min) break;
+
+                    exchangeBaseCase(pos + 1, in, varMap);
+                    auto in_size = size(in);
+                    total_min = std::min(total_min, in_size);
+                    total_max = std::max(total_max, in_size);
+                    assert(is_locally_consistent_dd(in));
+                    ++pos;
+                    if (in_size < min) {
+                        min = in_size;
+                        optimalPos = pos;
+                    }
+                }
+
+                // sifting back to optimal position
+                while (pos > optimalPos) {
+                    exchangeBaseCase(pos, in, varMap);
+                    auto in_size = size(in);
+                    total_min = std::min(total_min, in_size);
+                    total_max = std::max(total_max, in_size);
+                    assert(is_locally_consistent_dd(in));
+                    --pos;
+                }
+                while (pos < optimalPos) {
+                    exchangeBaseCase(pos + 1, in, varMap);
+                    auto in_size = size(in);
+                    total_min = std::min(total_min, in_size);
+                    total_max = std::max(total_max, in_size);
+                    assert(is_locally_consistent_dd(in));
+                    ++pos;
+                }
+            } else {  // variable is in upper half -> sifting to top first
+                // sifting up with lower bound pruning
+                while (pos < n - 1) {
+                    uint64_t lb = computeLowerBoundUp(varMap, pos);
+                    if (lb > min) break;
+
+                    exchangeBaseCase(pos + 1, in, varMap);
+                    auto in_size = size(in);
+                    total_min = std::min(total_min, in_size);
+                    total_max = std::max(total_max, in_size);
+                    assert(is_locally_consistent_dd(in));
+                    ++pos;
+                    if (in_size < min) {
+                        min = in_size;
+                        optimalPos = pos;
+                    }
+                }
+
+                // sifting down with lower bound pruning
+                while (pos > 0) {
+                    uint64_t lb = computeLowerBoundDown(varMap, pos);
+                    if (lb > min) break;
+
+                    exchangeBaseCase(pos, in, varMap);
+                    assert(is_locally_consistent_dd(in));
+                    auto in_size = size(in);
+                    total_min = std::min(total_min, in_size);
+                    total_max = std::max(total_max, in_size);
+                    --pos;
+                    if (in_size < min) {
+                        min = in_size;
+                        optimalPos = pos;
+                    }
+                }
+
+                // sifting back to optimal position
+                while (pos < optimalPos) {
+                    exchangeBaseCase(pos + 1, in, varMap);
+                    auto in_size = size(in);
+                    total_min = std::min(total_min, in_size);
+                    total_max = std::max(total_max, in_size);
+                    assert(is_locally_consistent_dd(in));
+                    ++pos;
+                }
+                while (pos > optimalPos) {
+                    exchangeBaseCase(pos, in, varMap);
+                    auto in_size = size(in);
+                    total_min = std::min(total_min, in_size);
+                    total_max = std::max(total_max, in_size);
+                    assert(is_locally_consistent_dd(in));
+                    --pos;
+                }
+            }
+
+            initComputeTable();
+
+            if (unnormalizedNodes > 0) {
+                auto oldroot = root;
+                root = renormalize(root);
+                decRef(oldroot);
+                incRef(root);
+                in.p = root.p;
+                in.w = root.w;
+            }
+            computeMatrixProperties = Enabled;
+            markForMatrixPropertyRecomputation(root);
+            recomputeMatrixProperties(root);
+
+        }
+		return {in, total_min, total_max};
+	}
 //     std::tuple<Edge, unsigned int, unsigned int> Package::sifting(Edge in, std::map<unsigned short, unsigned short>& varMap) {
 // 		const auto n = static_cast<short>(in.p->v + 1); //变量个数
 // 		// const auto n = static_cast<short>(in.p->v);
