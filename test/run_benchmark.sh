@@ -33,14 +33,14 @@ INPUT="${1:?请提供电路文件或文件夹路径}"
 OUTPUT="${2:-benchmark_results.csv}"
 
 # CSV Header
-echo "circuit,qubits,initial_size,build_time(s),sifting_size,sifting_time(s),lb_sifting_size,lb_sifting_time(s),upper_linear_size,upper_linear_time(s),lb_upper_linear_size,lb_upper_linear_time(s),lower_linear_size,lower_linear_time(s),lb_lower_linear_size,lb_lower_linear_time(s),mix_linear_size,mix_linear_time(s),lb_mix_linear_size,lb_mix_linear_time(s)" > "$OUTPUT"
+echo "circuit,initial_size,build_time(s),sifting_size,sifting_time(s),lb_sifting_size,lb_sifting_time(s),upper_linear_size,upper_linear_time(s),lb_upper_linear_size,lb_upper_linear_time(s),lower_linear_size,lower_linear_time(s),lb_lower_linear_size,lb_lower_linear_time(s),mix_linear_size,mix_linear_time(s),lb_mix_linear_size,lb_mix_linear_time(s)" > "$OUTPUT"
 
 # 收集文件列表
 FILES=()
 if [ -d "$INPUT" ]; then
     while IFS= read -r -d '' f; do
         FILES+=("$f")
-    done < <(find "$INPUT" -type f \( -name "*.real" -o -name "*.qasm" -o -name "*.tfc" -o -name "*.qc" \) -print0 | sort -z)
+    done < <(find "$INPUT" -type f -print0 | sort -z)
 elif [ -f "$INPUT" ]; then
     FILES=("$INPUT")
 else
@@ -50,7 +50,7 @@ fi
 
 TOTAL=${#FILES[@]}
 if [ "$TOTAL" -eq 0 ]; then
-    echo "错误: 在 '$INPUT' 中未找到电路文件 (.real/.qasm/.tfc/.qc)" >&2
+    echo "错误: 在 '$INPUT' 中未找到文件" >&2
     exit 1
 fi
 

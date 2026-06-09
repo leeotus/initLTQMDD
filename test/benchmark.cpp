@@ -69,7 +69,6 @@ int main(int argc, char **argv) {
 
     // 输出CSV行 (无header)
     cout << name << ","
-         << nQubits << ","
          << initialSize << ","
          << buildTime << ","
          << sift.size << "," << sift.time << ","
