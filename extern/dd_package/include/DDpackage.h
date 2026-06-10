@@ -147,7 +147,7 @@ namespace dd {
     };
 
 	enum DynamicReorderingStrategy {
-		None, Sifting, LBSifting, Random, Window3,
+		None, Sifting, LBSifting, TightLBSifting, Random, Window3,
 		upperLinearSifting, lowerLinearSifting, mixLinearSifting,
 		lbUpperLinearSifting, lbLowerLinearSifting, lbMixLinearSifting
 	};
@@ -326,6 +326,7 @@ namespace dd {
 	    Edge dynamicReorder(Edge in, std::map<unsigned short, unsigned short>& varMap, DynamicReorderingStrategy strat = None);
 	    std::tuple<Edge, unsigned int, unsigned int> sifting(Edge in, std::map<unsigned short, unsigned short>& varMap);
 	    std::tuple<Edge, unsigned int, unsigned int> lbSifting(Edge in, std::map<unsigned short, unsigned short>& varMap);
+	    std::tuple<Edge, unsigned int, unsigned int> tightLbSifting(Edge in, std::map<unsigned short, unsigned short>& varMap);
 		Edge random(Edge in, std::map<unsigned short, unsigned short> &varMap, std::mt19937_64 &mt);
 		Edge window3(Edge in, std::map<unsigned short, unsigned short>& varMap);
 		
@@ -393,6 +394,10 @@ namespace dd {
 		uint64_t naiveCount(const Edge &in);
 		uint64_t computeLowerBoundDown(std::map<uint16_t, uint16_t>& varMap, uint16_t i);
 		uint64_t computeLowerBoundUp(std::map<uint16_t, uint16_t>& varMap, uint16_t i);
+		uint64_t computeTightLowerBoundDown(std::map<uint16_t, uint16_t>& varMap, uint16_t i, Edge in);
+		uint64_t computeTightLowerBoundUp(std::map<uint16_t, uint16_t>& varMap, uint16_t i, Edge in);
+		uint64_t countDistinctChildren(uint16_t level);
+		uint64_t countMaxNewNodes(uint16_t level);
 
 
 		// utility
