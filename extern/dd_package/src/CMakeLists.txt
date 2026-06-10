@@ -7,10 +7,12 @@ add_library(${PROJECT_NAME}
             ${CMAKE_CURRENT_SOURCE_DIR}/DDlinear.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/DDlinearv2.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/DDlinearv3.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/DDigSifting.cpp
             ${${PROJECT_NAME}_SOURCE_DIR}/include/DDpackage.h
             ${${PROJECT_NAME}_SOURCE_DIR}/include/DDlinear.h
             ${${PROJECT_NAME}_SOURCE_DIR}/include/DDcomplex.h
-            ${${PROJECT_NAME}_SOURCE_DIR}/include/DDexport.h)
+            ${${PROJECT_NAME}_SOURCE_DIR}/include/DDexport.h
+            ${${PROJECT_NAME}_SOURCE_DIR}/include/InteractionGraph.h)
 add_library(JKQ::DDpackage ALIAS ${PROJECT_NAME})
 target_include_directories(${PROJECT_NAME} PUBLIC
                            $<BUILD_INTERFACE:${${PROJECT_NAME}_SOURCE_DIR}/include>)

@@ -8,6 +8,7 @@
 
 #include "DDcomplex.h"
 #include "DDlinear.h"
+#include "InteractionGraph.h"
 
 #include <unordered_set>
 #include <vector>
@@ -149,7 +150,8 @@ namespace dd {
 	enum DynamicReorderingStrategy {
 		None, Sifting, LBSifting, TightLBSifting, Random, Window3,
 		upperLinearSifting, lowerLinearSifting, mixLinearSifting,
-		lbUpperLinearSifting, lbLowerLinearSifting, lbMixLinearSifting
+		lbUpperLinearSifting, lbLowerLinearSifting, lbMixLinearSifting,
+		IGSifting
 	};
 
 	enum class PruningStrategy {
@@ -398,6 +400,7 @@ namespace dd {
 		uint64_t computeTightLowerBoundUp(std::map<uint16_t, uint16_t>& varMap, uint16_t i, Edge in);
 		uint64_t countDistinctChildren(uint16_t level);
 		uint64_t countMaxNewNodes(uint16_t level);
+		std::tuple<Edge, unsigned int, unsigned int> igSifting(Edge in, std::map<unsigned short, unsigned short>& varMap, const InteractionGraph& ig);
 
 
 		// utility

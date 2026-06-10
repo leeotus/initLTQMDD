@@ -100,3 +100,20 @@ add_custom_command(TARGET ${TIGHT_LB_BENCH_NAME}
                    COMMENT "Creating symlink for ${TIGHT_LB_BENCH_NAME}"
                    VERBATIM)
 set_target_properties(${PROJECT_NAME}_app PROPERTIES EXPORT_NAME ${PROJECT_NAME}_app)
+
+# IG Sifting benchmark
+set(IG_BENCH_NAME "benchmark_ig_sifting")
+add_executable(${IG_BENCH_NAME} ${CMAKE_SOURCE_DIR}/test/benchmark_ig_sifting.cpp)
+target_compile_features(${IG_BENCH_NAME} PUBLIC cxx_std_14)
+set_target_properties(${IG_BENCH_NAME} PROPERTIES CXX_EXTENSIONS OFF)
+target_link_libraries(${IG_BENCH_NAME} PUBLIC ${PROJECT_NAME})
+if(MSVC)
+        target_compile_options(${IG_BENCH_NAME} PUBLIC "/W4" "$<$<CONFIG:RELEASE>:/O2 /GL>")
+else()
+        target_compile_options(${IG_BENCH_NAME} PRIVATE -Wall $<$<CONFIG:DEBUG>:-g3 -Og> $<$<CONFIG:RELEASE>:-O3 -mtune=native -march=native -DNDEBUG>)
+endif()
+add_custom_command(TARGET ${IG_BENCH_NAME}
+                   POST_BUILD
+                   COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE_DIR:${IG_BENCH_NAME}>/${IG_BENCH_NAME} ${CMAKE_BINARY_DIR}/${IG_BENCH_NAME}
+                   COMMENT "Creating symlink for ${IG_BENCH_NAME}"
+                   VERBATIM)
