@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <numeric>
 #include <cassert>
+#include <cstdlib>
 
 namespace dd {
 
@@ -136,14 +137,19 @@ namespace dd {
                 auto members = ig.getGroupMembers(pos);
                 unsigned long sizeBeforeGroup = size(in);
 
+                constexpr int MAX_GROUP_PLACE = 8;
+                int placedCount = 0;
+
                 for (short member : members) {
+                    if (placedCount >= MAX_GROUP_PLACE) break;
                     if (member >= n || placed[member]) continue;
 
                     auto memberIt = varMap.find((unsigned short)member);
                     if (memberIt == varMap.end()) continue;
                     short memberPos = static_cast<short>(memberIt->second);
 
-                    short repPos = optimalPos;
+                    // Refresh representative's current DD position
+                    short repPos = static_cast<short>(varMap[pos]);
                     unsigned long bestSize = size(in);
                     short bestTarget = memberPos;
 
@@ -173,17 +179,22 @@ namespace dd {
                         while (tmpPos > memberPos) { exchangeBaseCase(tmpPos, in, varMap); --tmpPos; }
                     }
 
-                    // Commit only if improvement
+                    // Commit only if strictly improves
                     if (bestTarget != memberPos && bestSize < size(in)) {
                         short tmpPos = memberPos;
                         while (tmpPos < bestTarget) { exchangeBaseCase(tmpPos + 1, in, varMap); ++tmpPos; }
                         while (tmpPos > bestTarget) { exchangeBaseCase(tmpPos, in, varMap); --tmpPos; }
+
+                        // Safety: bail out if DD blew up
+                        unsigned long afterSize = size(in);
+                        if (afterSize > sizeBeforeGroup * 2) break;
                     }
 
                     total_min = std::min(total_min, size(in));
                     total_max = std::max(total_max, size(in));
                     placed[member] = true;
                     free.at(varMap[member]) = false;
+                    ++placedCount;
                 }
 
                 placed[pos] = true;
@@ -194,7 +205,8 @@ namespace dd {
     }
 
     // ================== igGroupSifting ==================
-    // Group Sifting with IG-guided direction + LB pruning
+    // Phase 1: Full igLbSifting for good base ordering
+    // Phase 2: Conservative group adjustment for symmetric members
 
     std::tuple<Edge, unsigned int, unsigned int> Package::igGroupSifting(
         Edge in, std::map<unsigned short, unsigned short>& varMap,
@@ -202,226 +214,85 @@ namespace dd {
     {
         if (ig.n <= 0) return sifting(in, varMap);
 
+        // Phase 1: Use igLbSifting to get a solid base ordering
+        auto [result, tmin, tmax] = igLbSifting(in, varMap, ig);
+        in = result;
+        unsigned int total_min = tmin;
+        unsigned int total_max = tmax;
+
+        // Phase 2: Detect symmetry and try conservative group adjustments
         ig.detectSymmetry();
+        if (ig.symmetricGroups.empty()) {
+            return {in, total_min, total_max};
+        }
 
         const auto n = static_cast<short>(in.p->v);
-        std::vector<bool> free(n, true);
-        std::map<unsigned short, unsigned short> invVarMap{};
-        for (const auto& i : varMap) invVarMap[i.second] = i.first;
+        constexpr short MAX_MOVE_DIST = 2;
 
-        computeMatrixProperties = Disabled;
-        unsigned int total_max = size(in);
-        unsigned int total_min = total_max;
+        for (auto& group : ig.symmetricGroups) {
+            if (group.size() < 2) continue;
 
-        std::vector<bool> placed(ig.n, false);
+            // Find the group representative (first member in the group)
+            short rep = group[0];
+            auto repIt = varMap.find((unsigned short)rep);
+            if (repIt == varMap.end() || rep >= n) continue;
 
-        for (int iter = 0; iter < n; ++iter) {
-            // IG-weighted variable selection
-            short pos = -1;
-            int maxDeg = 1;
-            for (int d = 0; d < std::min((int)n, ig.n); ++d)
-                if (ig.degree[d] > maxDeg) maxDeg = ig.degree[d];
+            for (size_t gi = 1; gi < group.size() && gi <= 4; ++gi) {
+                short member = group[gi];
+                if (member >= n) continue;
+                auto memberIt = varMap.find((unsigned short)member);
+                if (memberIt == varMap.end()) continue;
 
-            unsigned long maxActive = 1;
-            for (short j = 0; j < n; ++j) {
-                auto it = varMap.find(j);
-                if (it != varMap.end()) {
-                    auto act = (unsigned long)active.at(it->second);
-                    if (act > maxActive) maxActive = act;
-                }
-            }
+                short memberPos = static_cast<short>(memberIt->second);
+                short repPos = static_cast<short>(varMap[(unsigned short)rep]);
 
-            double bestScore = -1.0;
-            constexpr double alpha = 0.85;
-            for (short j = 0; j < n; j++) {
-                auto it = varMap.find(j);
-                if (it == varMap.end()) continue;
-                if (!free.at(it->second)) continue;
-                if (j < ig.n && placed[j]) continue;
+                short dist = (memberPos > repPos) ? (memberPos - repPos) : (repPos - memberPos);
+                if (dist <= 1 || dist > MAX_MOVE_DIST + 1) continue;
 
-                double actNorm = (double)active.at(it->second) / (double)maxActive;
-                double degNorm = (j < ig.n) ? (double)ig.degree[j] / (double)maxDeg : 0.0;
-                double score = alpha * actNorm + (1.0 - alpha) * degNorm;
-                if (score > bestScore) {
-                    bestScore = score;
-                    pos = j;
-                }
-            }
-            if (pos < 0) break;
+                unsigned long curSize = size(in);
+                short bestTarget = memberPos;
+                unsigned long bestSize = curSize;
 
-            if (pos < ig.n && placed[pos]) {
-                free.at(varMap[pos]) = false;
-                continue;
-            }
-
-            free.at(varMap[pos]) = false;
-            short optimalPos = pos;
-            unsigned long min = size(in);
-            short currentPos = pos;
-
-            // IG-guided direction
-            bool upFirst = false;
-            if (pos < ig.n) {
-                upFirst = ig.shouldSiftUpFirst(pos, currentPos, n, invVarMap);
-            } else {
-                upFirst = (currentPos >= n / 2);
-            }
-
-            // Sift with LB pruning
-            if (!upFirst) {
-                while (currentPos > 0) {
-                    uint64_t lb = computeLowerBoundDown(varMap, currentPos);
-                    if (lb > min) break;
-                    exchangeBaseCase(currentPos, in, varMap);
+                // Try repPos+1
+                if (repPos + 1 <= n - 1 && std::abs(memberPos - (repPos + 1)) <= MAX_MOVE_DIST) {
+                    short target = repPos + 1;
+                    short tmpPos = memberPos;
+                    while (tmpPos < target) { exchangeBaseCase(tmpPos + 1, in, varMap); ++tmpPos; }
+                    while (tmpPos > target) { exchangeBaseCase(tmpPos, in, varMap); --tmpPos; }
                     auto s = size(in);
-                    total_min = std::min(total_min, s);
-                    total_max = std::max(total_max, s);
-                    --currentPos;
-                    if (s < min) { min = s; optimalPos = currentPos; }
+                    if (s < bestSize) { bestSize = s; bestTarget = target; }
+                    while (tmpPos < memberPos) { exchangeBaseCase(tmpPos + 1, in, varMap); ++tmpPos; }
+                    while (tmpPos > memberPos) { exchangeBaseCase(tmpPos, in, varMap); --tmpPos; }
                 }
-                while (currentPos < n - 1) {
-                    uint64_t lb = computeLowerBoundUp(varMap, currentPos);
-                    if (lb > min) break;
-                    exchangeBaseCase(currentPos + 1, in, varMap);
+
+                // Try repPos-1
+                if (repPos - 1 >= 0 && std::abs(memberPos - (repPos - 1)) <= MAX_MOVE_DIST) {
+                    short target = repPos - 1;
+                    short tmpPos = memberPos;
+                    while (tmpPos < target) { exchangeBaseCase(tmpPos + 1, in, varMap); ++tmpPos; }
+                    while (tmpPos > target) { exchangeBaseCase(tmpPos, in, varMap); --tmpPos; }
                     auto s = size(in);
-                    total_min = std::min(total_min, s);
-                    total_max = std::max(total_max, s);
-                    ++currentPos;
-                    if (s < min) { min = s; optimalPos = currentPos; }
+                    if (s < bestSize) { bestSize = s; bestTarget = target; }
+                    while (tmpPos < memberPos) { exchangeBaseCase(tmpPos + 1, in, varMap); ++tmpPos; }
+                    while (tmpPos > memberPos) { exchangeBaseCase(tmpPos, in, varMap); --tmpPos; }
                 }
-            } else {
-                while (currentPos < n - 1) {
-                    uint64_t lb = computeLowerBoundUp(varMap, currentPos);
-                    if (lb > min) break;
-                    exchangeBaseCase(currentPos + 1, in, varMap);
-                    auto s = size(in);
-                    total_min = std::min(total_min, s);
-                    total_max = std::max(total_max, s);
-                    ++currentPos;
-                    if (s < min) { min = s; optimalPos = currentPos; }
-                }
-                while (currentPos > 0) {
-                    uint64_t lb = computeLowerBoundDown(varMap, currentPos);
-                    if (lb > min) break;
-                    exchangeBaseCase(currentPos, in, varMap);
-                    auto s = size(in);
-                    total_min = std::min(total_min, s);
-                    total_max = std::max(total_max, s);
-                    --currentPos;
-                    if (s < min) { min = s; optimalPos = currentPos; }
-                }
-            }
 
-            // Move back to optimal
-            while (currentPos > optimalPos) {
-                exchangeBaseCase(currentPos, in, varMap);
-                --currentPos;
-            }
-            while (currentPos < optimalPos) {
-                exchangeBaseCase(currentPos + 1, in, varMap);
-                ++currentPos;
-            }
-
-            // Group placement for symmetric members
-            if (pos < ig.n && ig.groupId[pos] >= 0) {
-                auto members = ig.getGroupMembers(pos);
-
-                for (short member : members) {
-                    if (member >= n || placed[member]) continue;
-
-                    auto memberIt = varMap.find((unsigned short)member);
-                    if (memberIt == varMap.end()) continue;
-                    short memberPos = static_cast<short>(memberIt->second);
-
-                    // Determine target: adjacent to representative's optimal position
-                    short repPos = optimalPos;
-                    unsigned long curSize = size(in);
-                    short bestTarget = memberPos;
-                    unsigned long bestSize = curSize;
-
-                    // Try position repPos+1 (above)
-                    if (repPos + 1 <= n - 1) {
-                        short target = repPos + 1;
-                        short tmpPos = memberPos;
-                        if (tmpPos < target) {
-                            while (tmpPos < target) {
-                                exchangeBaseCase(tmpPos + 1, in, varMap);
-                                ++tmpPos;
-                            }
-                        } else if (tmpPos > target) {
-                            while (tmpPos > target) {
-                                exchangeBaseCase(tmpPos, in, varMap);
-                                --tmpPos;
-                            }
-                        }
-                        auto s = size(in);
-                        if (s <= bestSize) {
-                            bestSize = s;
-                            bestTarget = target;
-                        }
-                        // Undo
-                        while (tmpPos < memberPos) {
-                            exchangeBaseCase(tmpPos + 1, in, varMap); ++tmpPos;
-                        }
-                        while (tmpPos > memberPos) {
-                            exchangeBaseCase(tmpPos, in, varMap); --tmpPos;
-                        }
+                // Commit only if strictly improves
+                if (bestTarget != memberPos && bestSize < curSize) {
+                    if (memberPos < bestTarget) {
+                        while (memberPos < bestTarget) { exchangeBaseCase(memberPos + 1, in, varMap); ++memberPos; }
+                    } else {
+                        while (memberPos > bestTarget) { exchangeBaseCase(memberPos, in, varMap); --memberPos; }
                     }
-
-                    // Try position repPos-1 (below)
-                    if (repPos - 1 >= 0) {
-                        short target = repPos - 1;
-                        short tmpPos = memberPos;
-                        if (tmpPos < target) {
-                            while (tmpPos < target) {
-                                exchangeBaseCase(tmpPos + 1, in, varMap);
-                                ++tmpPos;
-                            }
-                        } else if (tmpPos > target) {
-                            while (tmpPos > target) {
-                                exchangeBaseCase(tmpPos, in, varMap);
-                                --tmpPos;
-                            }
-                        }
-                        auto s = size(in);
-                        if (s < bestSize) {
-                            bestSize = s;
-                            bestTarget = target;
-                        }
-                        // Undo
-                        while (tmpPos < memberPos) {
-                            exchangeBaseCase(tmpPos + 1, in, varMap); ++tmpPos;
-                        }
-                        while (tmpPos > memberPos) {
-                            exchangeBaseCase(tmpPos, in, varMap); --tmpPos;
-                        }
-                    }
-
-                    // Commit to best target
-                    if (bestTarget != memberPos) {
-                        if (memberPos < bestTarget) {
-                            while (memberPos < bestTarget) {
-                                exchangeBaseCase(memberPos + 1, in, varMap);
-                                ++memberPos;
-                            }
-                        } else {
-                            while (memberPos > bestTarget) {
-                                exchangeBaseCase(memberPos, in, varMap);
-                                --memberPos;
-                            }
-                        }
-                    }
-
-                    total_min = std::min(total_min, size(in));
-                    total_max = std::max(total_max, size(in));
-                    placed[member] = true;
-                    free.at(varMap[member]) = false;
+                    unsigned long afterSize = size(in);
+                    total_min = std::min(total_min, (unsigned int)afterSize);
+                    if (afterSize > curSize) break;
                 }
-
-                placed[pos] = true;
             }
         }
 
+        total_min = std::min(total_min, size(in));
+        total_max = std::max(total_max, size(in));
         return {in, total_min, total_max};
     }
 

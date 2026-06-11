@@ -1288,10 +1288,10 @@ dd::Edge QuantumComputation::reduceAncillae(dd::Edge& e, std::unique_ptr<dd::Pac
 					e = std::get<0>(dd->tightLbSifting(e, map));
 					break;
 				case dd::GroupSifting:
-					e = std::get<0>(dd->groupSifting(e, map, ig));
+					e = std::get<0>(dd->igLbSifting(e, map, ig));
 					break;
 				case dd::IGGroupSifting:
-					e = std::get<0>(dd->igGroupSifting(e, map, ig));
+					e = std::get<0>(dd->igLbSifting(e, map, ig));
 					break;
 				default:
 						e = std::get<0>(dd->sifting(e, map));
