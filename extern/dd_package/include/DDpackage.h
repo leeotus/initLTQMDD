@@ -151,7 +151,7 @@ namespace dd {
 		None, Sifting, LBSifting, TightLBSifting, Random, Window3,
 		upperLinearSifting, lowerLinearSifting, mixLinearSifting,
 		lbUpperLinearSifting, lbLowerLinearSifting, lbMixLinearSifting,
-		IGSifting
+		IGSifting, IGLBSifting
 	};
 
 	enum class PruningStrategy {
@@ -327,6 +327,7 @@ namespace dd {
 	    void exchangeBaseCase2(NodePtr p, unsigned short index, Edge in);
 	    Edge dynamicReorder(Edge in, std::map<unsigned short, unsigned short>& varMap, DynamicReorderingStrategy strat = None);
 	    std::tuple<Edge, unsigned int, unsigned int> sifting(Edge in, std::map<unsigned short, unsigned short>& varMap);
+	    std::tuple<Edge, unsigned int, unsigned int> sifting(Edge in, std::map<unsigned short, unsigned short>& varMap, const std::vector<short>& varOrder);
 	    std::tuple<Edge, unsigned int, unsigned int> lbSifting(Edge in, std::map<unsigned short, unsigned short>& varMap);
 	    std::tuple<Edge, unsigned int, unsigned int> tightLbSifting(Edge in, std::map<unsigned short, unsigned short>& varMap);
 		Edge random(Edge in, std::map<unsigned short, unsigned short> &varMap, std::mt19937_64 &mt);
@@ -401,6 +402,7 @@ namespace dd {
 		uint64_t countDistinctChildren(uint16_t level);
 		uint64_t countMaxNewNodes(uint16_t level);
 		std::tuple<Edge, unsigned int, unsigned int> igSifting(Edge in, std::map<unsigned short, unsigned short>& varMap, const InteractionGraph& ig);
+		std::tuple<Edge, unsigned int, unsigned int> igLbSifting(Edge in, std::map<unsigned short, unsigned short>& varMap, const InteractionGraph& ig);
 
 
 		// utility
