@@ -151,7 +151,8 @@ namespace dd {
 		None, Sifting, LBSifting, TightLBSifting, Random, Window3,
 		upperLinearSifting, lowerLinearSifting, mixLinearSifting,
 		lbUpperLinearSifting, lbLowerLinearSifting, lbMixLinearSifting,
-		IGSifting, IGLBSifting
+		IGSifting, IGLBSifting,
+		igUpperLinearSifting, igLowerLinearSifting, igMixLinearSifting
 	};
 
 	enum class PruningStrategy {
@@ -366,7 +367,9 @@ namespace dd {
 		Edge linearAndSiftingAux(Edge in, std::map<unsigned short, unsigned short>& varMap);
 		Edge lbLinearAndSiftingAux(Edge in, std::map<unsigned short, unsigned short>& varMap);
 		Edge linearAndSiftingAux(Edge in, std::map<unsigned short, unsigned short>& varMap, bool upOrLow, PruningStrategy pruning = PruningStrategy::NoPruning);
+		Edge linearAndSiftingAux(Edge in, std::map<unsigned short, unsigned short>& varMap, bool upOrLow, const InteractionGraph& ig, PruningStrategy pruning = PruningStrategy::NoPruning);
 		Edge mixLinearAndSiftingAux(Edge in, std::map<unsigned short, unsigned short>& varMap, bool fg, PruningStrategy pruning = PruningStrategy::NoPruning);
+		Edge mixLinearAndSiftingAux(Edge in, std::map<unsigned short, unsigned short>& varMap, bool fg, const InteractionGraph& ig, PruningStrategy pruning = PruningStrategy::NoPruning);
 		Edge linearAndSiftingAux2(Edge in, std::map<unsigned short, unsigned short>& varMap, bool fg);
 		std::list<Move> undoMoves(short &pos, Edge in, std::map<unsigned short, unsigned short>& Map, std::list<Move> &moves);
 		std::list<Move> exchangMoves(short &pos, Edge in, std::map<unsigned short, unsigned short>& Map, std::list<Move> &moves);

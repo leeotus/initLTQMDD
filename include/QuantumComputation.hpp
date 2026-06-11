@@ -191,6 +191,8 @@ namespace qc {
 		virtual std::pair<dd::Edge, std::pair<uint32_t, uint32_t>> buildFunctionalityMin(std::unique_ptr<dd::Package>& dd, permutationMap &mapIn);
 		virtual dd::Edge buildFunDynSift(std::unique_ptr<dd::Package>& dd, permutationMap& theMap);
 		virtual dd::Edge buildFunDynLinSift(std::unique_ptr<dd::Package>& dd, permutationMap& theMap);
+		virtual dd::Edge buildFunctionalityDynamic(std::unique_ptr<dd::Package>& dd, permutationMap& theMap, dd::DynamicReorderingStrategy strat);
+		static dd::DynamicReorderingStrategy parseDynSiftStrategy(const std::string& name);
 		virtual dd::Edge simulate(const dd::Edge& in, std::unique_ptr<dd::Package>& dd);
 
 		/// Obtain vector/matrix entry for row i (and column j). Does not include common factor e.w!

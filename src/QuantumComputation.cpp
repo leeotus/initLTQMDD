@@ -1209,6 +1209,116 @@ dd::Edge QuantumComputation::reduceAncillae(dd::Edge& e, std::unique_ptr<dd::Pac
 
 	}
 
+	dd::DynamicReorderingStrategy QuantumComputation::parseDynSiftStrategy(const std::string& name) {
+		if (name == "sifting" || name == "Sifting")           return dd::Sifting;
+		if (name == "lb" || name == "LBSifting")              return dd::LBSifting;
+		if (name == "tightlb" || name == "TightLBSifting")    return dd::TightLBSifting;
+		if (name == "ig" || name == "IGSifting")              return dd::IGSifting;
+		if (name == "iglb" || name == "IGLBSifting")          return dd::IGLBSifting;
+		if (name == "upperls" || name == "upperLinearSifting") return dd::upperLinearSifting;
+		if (name == "lowerls" || name == "lowerLinearSifting") return dd::lowerLinearSifting;
+		if (name == "mixls" || name == "mixLinearSifting")     return dd::mixLinearSifting;
+		if (name == "lbupperls")    return dd::lbUpperLinearSifting;
+		if (name == "lblowerls")    return dd::lbLowerLinearSifting;
+		if (name == "lbmixls")      return dd::lbMixLinearSifting;
+		if (name == "igupperls")    return dd::igUpperLinearSifting;
+		if (name == "iglowerls")    return dd::igLowerLinearSifting;
+		if (name == "igmixls")      return dd::igMixLinearSifting;
+		if (name == "none" || name == "None")                  return dd::None;
+		return dd::None;
+	}
+
+	dd::Edge QuantumComputation::buildFunctionalityDynamic(
+		std::unique_ptr<dd::Package>& dd, permutationMap& theMap,
+		dd::DynamicReorderingStrategy strat)
+	{
+		if (nqubits + nancillae == 0)
+			return dd->DDone;
+
+		std::array<short, MAX_QUBITS> line{};
+		line.fill(LINE_DEFAULT);
+		permutationMap map = initialLayout;
+
+		dd->setMode(dd::Matrix);
+		dd::Edge e = createInitialMatrix(dd);
+
+		// For IG strategies, pre-build interaction graph
+		dd::InteractionGraph ig;
+		if (strat == dd::IGSifting || strat == dd::IGLBSifting ||
+		    strat == dd::igUpperLinearSifting || strat == dd::igLowerLinearSifting ||
+		    strat == dd::igMixLinearSifting) {
+			ig.build(*this);
+		}
+
+		long long threshold = 1000;
+		unsigned int curSize = 0;
+
+		for (auto& op : ops) {
+			auto newDD = op->getDD(dd, line, map);
+			dd->incRef(newDD);
+
+			auto tmp = dd->multiply(newDD, e);
+			dd->incRef(tmp);
+			dd->decRef(e);
+			dd->decRef(newDD);
+			e = tmp;
+
+			auto nowSize = dd->size(e);
+
+			// Trigger: size exceeds doubling threshold
+			if (strat != dd::None && (long long)nowSize > threshold) {
+				e = std::get<0>(dd->sifting(e, map));
+
+				curSize = dd->size(e);
+				long long candidate = (long long)(curSize * 1.5);
+				threshold = (threshold * 2 > candidate) ? threshold * 2 : candidate;
+
+				e = reduceAncillae(e, dd);
+				dd->garbageCollect();
+			}
+
+			dd->garbageCollect();
+		}
+
+		// Final pass: apply the actual requested strategy
+		if (strat != dd::None) {
+			switch (strat) {
+				case dd::Sifting:
+					e = std::get<0>(dd->sifting(e, map));
+					break;
+				case dd::LBSifting:
+					e = std::get<0>(dd->lbSifting(e, map));
+					break;
+				case dd::TightLBSifting:
+					e = std::get<0>(dd->tightLbSifting(e, map));
+					break;
+				case dd::IGSifting:
+					e = std::get<0>(dd->igSifting(e, map, ig));
+					break;
+				case dd::IGLBSifting:
+					e = std::get<0>(dd->igLbSifting(e, map, ig));
+					break;
+				case dd::igUpperLinearSifting:
+					e = dd->linearAndSiftingAux(e, map, UPLT, ig, dd::PruningStrategy::NoPruning);
+					break;
+				case dd::igLowerLinearSifting:
+					e = dd->linearAndSiftingAux(e, map, LOWLT, ig, dd::PruningStrategy::NoPruning);
+					break;
+				case dd::igMixLinearSifting:
+					e = dd->mixLinearAndSiftingAux(e, map, 1, ig, dd::PruningStrategy::NoPruning);
+					break;
+				default:
+					e = dd->dynamicReorder(e, map, strat);
+					break;
+			}
+		}
+
+		theMap = map;
+		e = reduceAncillae(e, dd);
+
+		return e;
+	}
+
 	std::pair<dd::Edge, std::pair<uint32_t, uint32_t>> QuantumComputation::buildFunctionality(std::unique_ptr<dd::Package>& dd, permutationMap &mapIn) {
 		if (nqubits + nancillae == 0)
 			return {dd->DDone, {0,0}};

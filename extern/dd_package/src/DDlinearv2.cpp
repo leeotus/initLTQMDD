@@ -1418,5 +1418,244 @@ namespace dd {
 		}
 		return in; //返回DD指针	
 	}
+
+	// IG-enhanced linearAndSiftingAux: hybrid variable selection + IG direction
+	Edge Package::linearAndSiftingAux(Edge in,
+	std::map<unsigned short, unsigned short>& varMap,
+	bool upOrLow,
+	const InteractionGraph& ig,
+	PruningStrategy pruning
+	) {
+		const auto n = static_cast<short>(in.p->v + 1);
+		std::list<Move> moveUp;
+		std::list<Move> moveDown;
+
+		std::vector<bool> free(n, true);
+		computeMatrixProperties = Disabled;
+		Edge root{in};
+
+		// Build invVarMap for IG gravity
+		std::map<unsigned short, unsigned short> invVarMap{};
+		for (auto& i : varMap) invVarMap[i.second] = i.first;
+
+		// IG scoring helpers
+		int maxDeg = 1;
+		if (ig.n > 0)
+			for (int d = 0; d < std::min((int)n, ig.n); ++d)
+				if (ig.degree[d] > maxDeg) maxDeg = ig.degree[d];
+
+		short pos = -1;
+
+		for (int i = 0; i < n; ++i) {
+			assert(is_globally_consistent_dd(in));
+			unsigned long min = size(in);
+
+			// IG hybrid variable selection
+			if (ig.n > 0) {
+				unsigned long maxActive = 1;
+				for (short j = 0; j < n; ++j) {
+					auto act = (unsigned long)active.at(varMap[j]);
+					if (act > maxActive) maxActive = act;
+				}
+				double bestScore = -1.0;
+				for (short j = 0; j < n; j++) {
+					if (free.at(varMap[j]) && active.at(varMap[j]) > 0) {
+						double actScore = (double)active.at(varMap[j]) / (double)maxActive;
+						double degScore = (j < ig.n) ? (double)ig.degree[j] / (double)maxDeg : 0.0;
+						double score = 0.85 * actScore + 0.15 * degScore;
+						if (score > bestScore) {
+							bestScore = score;
+							pos = j;
+						}
+					}
+				}
+			} else {
+				unsigned long max = 0;
+				for (short j = 0; j < n; j++) {
+					if (free.at(varMap[j]) && active.at(varMap[j]) > (unsigned short)max) {
+						max = active.at(varMap[j]);
+						pos = j;
+					}
+				}
+			}
+
+			free.at(varMap[pos]) = false;
+			short optimalPos = pos;
+			short originalPos = pos;
+
+			Move curState;
+			curState.ddsize = min;
+			curState.index = -1;
+			curState.pos = pos;
+			curState.optype = -1;
+			std::list<Move> curMoveV;
+			curMoveV.push_back(curState);
+
+			// IG gravity direction
+			bool siftDownFirst;
+			if (ig.n > 0 && pos < ig.n) {
+				double gravityUp = 0, gravityDown = 0;
+				for (short j = pos + 1; j < n; ++j) {
+					auto it = invVarMap.find(j);
+					if (it != invVarMap.end() && it->second < (unsigned short)ig.n)
+						gravityUp += ig.weight[pos][it->second];
+				}
+				for (short j = 0; j < pos; ++j) {
+					auto it = invVarMap.find(j);
+					if (it != invVarMap.end() && it->second < (unsigned short)ig.n)
+						gravityDown += ig.weight[pos][it->second];
+				}
+				siftDownFirst = (gravityDown > gravityUp) || (gravityDown == gravityUp && pos < n / 2);
+			} else {
+				siftDownFirst = (pos < n / 2);
+			}
+
+			if (pos == n - 1) {
+				moveDown = linearAndSiftingDown(pos, in, varMap, curMoveV, upOrLow, pruning);
+				linearAndSiftingBackward(optimalPos, in, varMap, moveDown);
+			} else if (pos == 0) {
+				moveUp = linearAndSiftingUp(pos, in, varMap, curMoveV, upOrLow, pruning);
+				linearAndSiftingBackward(optimalPos, in, varMap, moveUp);
+			} else if (siftDownFirst) {
+				moveDown = linearAndSiftingDown(pos, in, varMap, curMoveV, upOrLow, pruning);
+				moveUp = undoMoves(pos, in, varMap, moveDown);
+				moveUp = linearAndSiftingUp(pos, in, varMap, moveUp, upOrLow, pruning);
+				linearAndSiftingBackward(optimalPos, in, varMap, moveUp);
+			} else {
+				moveUp = linearAndSiftingUp(pos, in, varMap, curMoveV, upOrLow, pruning);
+				moveDown = undoMoves(pos, in, varMap, moveUp);
+				moveDown = linearAndSiftingDown(pos, in, varMap, moveDown, upOrLow, pruning);
+				linearAndSiftingBackward(optimalPos, in, varMap, moveDown);
+			}
+
+			initComputeTable();
+			computeMatrixProperties = Enabled;
+			markForMatrixPropertyRecomputation(root);
+			recomputeMatrixProperties(root);
+
+			// Rebuild invVarMap
+			invVarMap.clear();
+			for (auto& kv : varMap) invVarMap[kv.second] = kv.first;
+		}
+		return in;
+	}
+
+	// IG-enhanced mixLinearAndSiftingAux: hybrid variable selection + IG direction
+	Edge Package::mixLinearAndSiftingAux(Edge in,
+	std::map<unsigned short, unsigned short>& varMap,
+	bool fg,
+	const InteractionGraph& ig,
+	PruningStrategy pruning
+	) {
+		const auto n = static_cast<short>(in.p->v + 1);
+		std::list<Move> moveUp;
+		std::list<Move> moveDown;
+
+		std::vector<bool> free(n, true);
+		computeMatrixProperties = Disabled;
+		Edge root{in};
+
+		std::map<unsigned short, unsigned short> invVarMap{};
+		for (auto& i : varMap) invVarMap[i.second] = i.first;
+
+		int maxDeg = 1;
+		if (ig.n > 0)
+			for (int d = 0; d < std::min((int)n, ig.n); ++d)
+				if (ig.degree[d] > maxDeg) maxDeg = ig.degree[d];
+
+		short pos = -1;
+
+		for (int i = 0; i < n; ++i) {
+			assert(is_globally_consistent_dd(in));
+			unsigned long min = size(in);
+
+			// IG hybrid variable selection
+			if (ig.n > 0) {
+				unsigned long maxActive = 1;
+				for (short j = 0; j < n; ++j) {
+					auto act = (unsigned long)active.at(varMap[j]);
+					if (act > maxActive) maxActive = act;
+				}
+				double bestScore = -1.0;
+				for (short j = 0; j < n; j++) {
+					if (free.at(varMap[j]) && active.at(varMap[j]) > 0) {
+						double actScore = (double)active.at(varMap[j]) / (double)maxActive;
+						double degScore = (j < ig.n) ? (double)ig.degree[j] / (double)maxDeg : 0.0;
+						double score = 0.85 * actScore + 0.15 * degScore;
+						if (score > bestScore) {
+							bestScore = score;
+							pos = j;
+						}
+					}
+				}
+			} else {
+				unsigned long max = 0;
+				for (short j = 0; j < n; j++) {
+					if (free.at(varMap[j]) && active.at(varMap[j]) > (unsigned short)max) {
+						max = active.at(varMap[j]);
+						pos = j;
+					}
+				}
+			}
+
+			free.at(varMap[pos]) = false;
+			short optimalPos = pos;
+			short originalPos = pos;
+
+			Move curState;
+			curState.ddsize = min;
+			curState.index = -1;
+			curState.pos = pos;
+			curState.optype = -1;
+			std::list<Move> curMoveV;
+			curMoveV.push_back(curState);
+
+			// IG gravity direction
+			bool siftDownFirst;
+			if (ig.n > 0 && pos < ig.n) {
+				double gravityUp = 0, gravityDown = 0;
+				for (short j = pos + 1; j < n; ++j) {
+					auto it = invVarMap.find(j);
+					if (it != invVarMap.end() && it->second < (unsigned short)ig.n)
+						gravityUp += ig.weight[pos][it->second];
+				}
+				for (short j = 0; j < pos; ++j) {
+					auto it = invVarMap.find(j);
+					if (it != invVarMap.end() && it->second < (unsigned short)ig.n)
+						gravityDown += ig.weight[pos][it->second];
+				}
+				siftDownFirst = (gravityDown > gravityUp) || (gravityDown == gravityUp && pos < n / 2);
+			} else {
+				siftDownFirst = (pos < n / 2);
+			}
+
+			if (pos == n - 1) {
+				moveDown = mixLinearAndSiftingDown(pos, in, varMap, curMoveV, pruning);
+				linearAndSiftingBackward(optimalPos, in, varMap, moveDown);
+			} else if (pos == 0) {
+				moveUp = mixLinearAndSiftingUp(pos, in, varMap, curMoveV, pruning);
+				linearAndSiftingBackward(optimalPos, in, varMap, moveUp);
+			} else if (siftDownFirst) {
+				moveDown = mixLinearAndSiftingDown(pos, in, varMap, curMoveV, pruning);
+				moveUp = undoMoves(pos, in, varMap, moveDown);
+				moveUp = mixLinearAndSiftingUp(pos, in, varMap, moveUp, pruning);
+				linearAndSiftingBackward(optimalPos, in, varMap, moveUp);
+			} else {
+				moveUp = mixLinearAndSiftingUp(pos, in, varMap, curMoveV, pruning);
+				moveDown = undoMoves(pos, in, varMap, moveUp);
+				moveDown = mixLinearAndSiftingDown(pos, in, varMap, moveDown, pruning);
+				linearAndSiftingBackward(optimalPos, in, varMap, moveDown);
+			}
+
+			initComputeTable();
+			computeMatrixProperties = Enabled;
+			markForMatrixPropertyRecomputation(root);
+			recomputeMatrixProperties(root);
+
+			invVarMap.clear();
+			for (auto& kv : varMap) invVarMap[kv.second] = kv.first;
+		}
+		return in;
+	}
 }
 

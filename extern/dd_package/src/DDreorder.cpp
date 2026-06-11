@@ -479,6 +479,10 @@ namespace dd {
 			case lbLowerLinearSifting: return linearAndSiftingAux(in, varMap, LOWLT, PruningStrategy::LowerBound);
 			case lbMixLinearSifting: return mixLinearAndSiftingAux(in, varMap, 1, PruningStrategy::LowerBound);
 			case IGSifting: return std::get<0>(igSifting(in, varMap, InteractionGraph{}));
+			case IGLBSifting: return std::get<0>(igLbSifting(in, varMap, InteractionGraph{}));
+			case igUpperLinearSifting: return linearAndSiftingAux(in, varMap, UPLT, InteractionGraph{}, PruningStrategy::NoPruning);
+			case igLowerLinearSifting: return linearAndSiftingAux(in, varMap, LOWLT, InteractionGraph{}, PruningStrategy::NoPruning);
+			case igMixLinearSifting: return mixLinearAndSiftingAux(in, varMap, 1, InteractionGraph{}, PruningStrategy::NoPruning);
 		}
 
 		return in;
