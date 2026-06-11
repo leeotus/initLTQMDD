@@ -65,7 +65,7 @@ CIRCUITS=()
 if [[ -d "$INPUT" ]]; then
     while IFS= read -r f; do
         CIRCUITS+=("$f")
-    done < <(find "$INPUT" -maxdepth 1 -type f \( -name "*.real" -o -name "*.qasm" \) | sort)
+    done < <(find "$INPUT" -maxdepth 1 -type f \( -name "*.real" -o -name "*.qasm" -o -name "*.txt" \) | sort)
 elif [[ -f "$INPUT" ]]; then
     CIRCUITS=("$INPUT")
 else
@@ -82,7 +82,7 @@ fi
 IFS=',' read -ra STRATS <<< "$STRATEGIES"
 
 # Write CSV header
-echo -n "circuit,qubits,gates,initial_size" > "$OUTPUT"
+echo -n "circuit,initial_size" > "$OUTPUT"
 for strat in "${STRATS[@]}"; do
     echo -n ",${strat}_size,${strat}_time" >> "$OUTPUT"
 done
@@ -116,30 +116,13 @@ for circuit in "${CIRCUITS[@]}"; do
     fi
 
     initial_size=$(echo "$none_out" | grep -oP '初始DD大小: \K[0-9]+')
-    qubits=$(echo "$none_out" | grep -oP '(\d+)(?= qubit)' || echo "?")
-
-    # Try to extract qubit/gate count from the .real file header
-    if [[ -f "$circuit" ]]; then
-        qubits_line=$(grep -i "^\.numvars" "$circuit" 2>/dev/null | grep -oP '\d+')
-        if [[ -n "$qubits_line" ]]; then
-            qubits="$qubits_line"
-        fi
-        gates_line=$(grep -c "^t[0-9]\|^f[0-9]\|^T[0-9]\|^F[0-9]" "$circuit" 2>/dev/null)
-        if [[ -z "$gates_line" || "$gates_line" == "0" ]]; then
-            gates_line=$(grep -c "^[a-z]" "$circuit" 2>/dev/null)
-        fi
-        gates="${gates_line:-?}"
-    else
-        qubits="?"
-        gates="?"
-    fi
 
     if [[ -z "$initial_size" ]]; then
         initial_size="?"
     fi
 
     # Write row start
-    echo -n "$name,$qubits,$gates,$initial_size" >> "$OUTPUT"
+    echo -n "$name,$initial_size" >> "$OUTPUT"
 
     # Run each strategy
     for strat in "${STRATS[@]}"; do
