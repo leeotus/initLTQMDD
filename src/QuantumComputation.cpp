@@ -1242,18 +1242,23 @@ dd::Edge QuantumComputation::reduceAncillae(dd::Edge& e, std::unique_ptr<dd::Pac
 		dd->setMode(dd::Matrix);
 		dd::Edge e = createInitialMatrix(dd);
 
-		// For IG strategies, pre-build interaction graph
+		bool useIG = (strat == dd::IGSifting || strat == dd::IGLBSifting ||
+		              strat == dd::igUpperLinearSifting || strat == dd::igLowerLinearSifting ||
+		              strat == dd::igMixLinearSifting);
+
 		dd::InteractionGraph ig;
-		if (strat == dd::IGSifting || strat == dd::IGLBSifting ||
-		    strat == dd::igUpperLinearSifting || strat == dd::igLowerLinearSifting ||
-		    strat == dd::igMixLinearSifting) {
-			ig.build(*this);
+		if (useIG) {
+			ig.initForNqubits(getNqubits());
 		}
 
 		long long threshold = 1000;
 		unsigned int curSize = 0;
 
 		for (auto& op : ops) {
+			if (useIG) {
+				ig.addGate(op);
+			}
+
 			auto newDD = op->getDD(dd, line, map);
 			dd->incRef(newDD);
 
@@ -1265,9 +1270,24 @@ dd::Edge QuantumComputation::reduceAncillae(dd::Edge& e, std::unique_ptr<dd::Pac
 
 			auto nowSize = dd->size(e);
 
-			// Trigger: size exceeds doubling threshold
 			if (strat != dd::None && (long long)nowSize > threshold) {
-				e = std::get<0>(dd->sifting(e, map));
+				switch (strat) {
+					case dd::IGSifting:
+						e = std::get<0>(dd->igSifting(e, map, ig));
+						break;
+					case dd::IGLBSifting:
+						e = std::get<0>(dd->igLbSifting(e, map, ig));
+						break;
+					case dd::LBSifting:
+						e = std::get<0>(dd->lbSifting(e, map));
+						break;
+					case dd::TightLBSifting:
+						e = std::get<0>(dd->tightLbSifting(e, map));
+						break;
+					default:
+						e = std::get<0>(dd->sifting(e, map));
+						break;
+				}
 
 				curSize = dd->size(e);
 				long long candidate = (long long)(curSize * 1.5);
@@ -1280,7 +1300,11 @@ dd::Edge QuantumComputation::reduceAncillae(dd::Edge& e, std::unique_ptr<dd::Pac
 			dd->garbageCollect();
 		}
 
-		// Final pass: apply the actual requested strategy
+		if (useIG) {
+			dd->setInteractionGraph(ig);
+		}
+
+		// Final pass
 		if (strat != dd::None) {
 			switch (strat) {
 				case dd::Sifting:

@@ -327,6 +327,9 @@ namespace dd {
 	    void exchangeBaseCase(unsigned short i, Edge in);
 	    void exchangeBaseCase2(NodePtr p, unsigned short index, Edge in);
 	    Edge dynamicReorder(Edge in, std::map<unsigned short, unsigned short>& varMap, DynamicReorderingStrategy strat = None);
+	    void setInteractionGraph(const InteractionGraph& ig) { storedIG = ig; }
+	    const InteractionGraph& getInteractionGraph() const { return storedIG; }
+	    InteractionGraph storedIG;
 	    std::tuple<Edge, unsigned int, unsigned int> sifting(Edge in, std::map<unsigned short, unsigned short>& varMap);
 	    std::tuple<Edge, unsigned int, unsigned int> sifting(Edge in, std::map<unsigned short, unsigned short>& varMap, const std::vector<short>& varOrder);
 	    std::tuple<Edge, unsigned int, unsigned int> lbSifting(Edge in, std::map<unsigned short, unsigned short>& varMap);

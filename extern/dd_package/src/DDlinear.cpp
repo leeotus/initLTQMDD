@@ -18,10 +18,10 @@ namespace dd {
 		for(uint16_t j=0; j<i; ++j) {
 			labA += active.at(varMap[j]);
 		}
-		for(uint16_t j=i+1; j<=n; ++j) {
+		for(uint16_t j=i+1; j<n; ++j) {
 			labB += active.at(varMap[j]);
 		}
-		lb = labA + std::max((uint64_t)active.at(varMap[i]), 1+labB/2);
+		lb = labA + std::max((uint64_t)active.at(varMap[i]), 1+labB/NEDGE);
 		return lb;
 	}
 	
@@ -31,11 +31,11 @@ namespace dd {
 		for(uint16_t j=0; j<=i-2; ++j) {
 			labA += active.at(varMap[j]);
 		}
-		for(uint16_t j=i+1; j<=n; ++j) {
+		for(uint16_t j=i+1; j<n; ++j) {
 			labC += active.at(varMap[j]);
 		}
 		// lb = i + (uint64_t)active.at(varMap[i])/(2<<i) + labC; //lb公式1
-		lb = labA + 1+active.at(varMap[i])/2 + labC; //lb2
+		lb = labA + 1+active.at(varMap[i])/NEDGE + labC;
 		return lb;
 	}
 
@@ -121,27 +121,18 @@ namespace dd {
 		}
 		
 		// 关键：对 sifting 变量本身，交换后新层的节点数下界
-		// 方法1：原始 bound —— max(active[i], 1 + labB/2)
-		uint64_t originalBound = std::max((uint64_t)active.at(varMap[i]), (uint64_t)(1 + fixedBelow / 2));
+		// 方法1：原始 bound —— max(active[i], 1 + fixedBelow/NEDGE)
+		uint64_t originalBound = std::max((uint64_t)active.at(varMap[i]), (uint64_t)(1 + fixedBelow / NEDGE));
 		
 		// 方法2：基于子节点共享的 bound
-		// 交换 level i 和 level i-1 后：
-		// - 新的 level i 节点数 <= active[i]（只减不增，因为某些节点可能合并）  
-		// - 新的 level i-1 节点数 >= distinct_children / NEDGE
-		//   因为 level i 的每个节点有 NEDGE 条边指向 level i-1 的子节点
-		//   交换后新的 level i-1 节点由这些子节点的"列"组合决定
 		uint64_t distinctChildren = countDistinctChildren(varMap[i]);
-		// 交换后 level i-1 至少有 ceil(distinctChildren / NEDGE) 个节点
-		// 但更保守的估计：至少有 distinctChildren 个不同的子节点组合中 ceil 个新节点
 		uint64_t childBound = (distinctChildren + NEDGE - 1) / NEDGE;
 		
-		// 方法3：当前层节点的唯一出边模式数
-		// 如果 level i 的节点有很多不同的子节点模式，交换后很难合并
+		// 方法3：基于唯一出边模式数的 bound
+		// countMaxNewNodes 统计交换后新层中不可合并的边模式数
 		uint64_t patternBound = 0;
 		if (i > 0) {
-			// 交换后，每个原 level i 节点产生 NEDGE 个潜在的新 level i-1 节点
-			// 但重复的可以合并，所以下界 >= max(childBound, 1)
-			patternBound = std::max(childBound, (uint64_t)1);
+			patternBound = countMaxNewNodes(varMap[i]);
 		}
 		
 		// 取所有 bound 中最大的（最紧的）
@@ -173,19 +164,18 @@ namespace dd {
 		}
 		
 		// 原始 bound
-		uint64_t originalBound = 1 + (uint64_t)active.at(varMap[i]) / 2;
+		uint64_t originalBound = 1 + (uint64_t)active.at(varMap[i]) / NEDGE;
 		
-		// 基于子节点共享的 bound（向上移动时，考虑 level i+1 对 level i 的引用）
-		// 向上交换时，level i 变为上层，level i+1 的节点引用情况决定 level i 能缩到多小
-		// 交换后 level i 节点数 >= 1（至少有根路径经过）
-		// 更紧：level i 交换到上面后，原来 level i 的每个节点被拆分
-		// 最少产生 ceil(active[i] / NEDGE) 个不可合并节点
+		// 基于子节点共享的 bound
 		uint64_t childBound = ((uint64_t)active.at(varMap[i]) + NEDGE - 1) / NEDGE;
 		
-		// 还可以考虑：向上移动后，新的下层（原 i+1 变成 i）的扇入约束
-		// 原 level i+1 的节点数不会因为交换而增加（只可能因为拆分而增加）
-		// 所以 active[i+1] 是一个下界
-		uint64_t upperLayerBound = std::max(childBound, originalBound);
+		// 基于边模式的 bound（向上移动时，考虑 level i+1 的边模式）
+		uint64_t patternBound = 0;
+		if (i + 1 < n) {
+			patternBound = countMaxNewNodes(varMap[i + 1]);
+		}
+		
+		uint64_t upperLayerBound = std::max(originalBound, std::max(childBound, patternBound));
 		
 		lb = fixedBelow + upperLayerBound + fixedAbove;
 		

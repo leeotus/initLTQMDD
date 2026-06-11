@@ -15,37 +15,42 @@ namespace dd {
 
         InteractionGraph() = default;
 
-        template<typename QuantumCircuit>
-        void build(const QuantumCircuit& qc) {
-            n = qc.getNqubits();
+        void initForNqubits(int nqubits) {
+            n = nqubits;
             weight.assign(n, std::vector<int>(n, 0));
             degree.assign(n, 0);
+        }
 
-            for (const auto& op : qc) {
-                std::vector<unsigned short> involved;
-                for (auto t : op->getTargets())
-                    involved.push_back(t);
-                for (const auto& c : op->getControls())
-                    involved.push_back(c.qubit);
+        template<typename Operation>
+        void addGate(const Operation& op) {
+            std::vector<unsigned short> involved;
+            for (auto t : op->getTargets())
+                involved.push_back(t);
+            for (const auto& c : op->getControls())
+                involved.push_back(c.qubit);
 
-                if (involved.size() < 2) continue;
+            if (involved.size() < 2) return;
 
-                for (size_t a = 0; a < involved.size(); ++a) {
-                    for (size_t b = a + 1; b < involved.size(); ++b) {
-                        unsigned short qa = involved[a];
-                        unsigned short qb = involved[b];
-                        if (qa < (unsigned short)n && qb < (unsigned short)n) {
-                            weight[qa][qb]++;
-                            weight[qb][qa]++;
-                        }
+            for (size_t a = 0; a < involved.size(); ++a) {
+                for (size_t b = a + 1; b < involved.size(); ++b) {
+                    unsigned short qa = involved[a];
+                    unsigned short qb = involved[b];
+                    if (qa < (unsigned short)n && qb < (unsigned short)n) {
+                        weight[qa][qb]++;
+                        weight[qb][qa]++;
+                        degree[qa]++;
+                        degree[qb]++;
                     }
                 }
             }
+        }
 
-            for (int i = 0; i < n; ++i) {
-                degree[i] = 0;
-                for (int j = 0; j < n; ++j)
-                    degree[i] += weight[i][j];
+        template<typename QuantumCircuit>
+        void build(const QuantumCircuit& qc) {
+            initForNqubits(qc.getNqubits());
+
+            for (const auto& op : qc) {
+                addGate(op);
             }
         }
 

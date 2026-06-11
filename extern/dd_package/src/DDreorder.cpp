@@ -478,11 +478,11 @@ namespace dd {
 			case lbUpperLinearSifting: return linearAndSiftingAux(in, varMap, UPLT, PruningStrategy::LowerBound);
 			case lbLowerLinearSifting: return linearAndSiftingAux(in, varMap, LOWLT, PruningStrategy::LowerBound);
 			case lbMixLinearSifting: return mixLinearAndSiftingAux(in, varMap, 1, PruningStrategy::LowerBound);
-			case IGSifting: return std::get<0>(igSifting(in, varMap, InteractionGraph{}));
-			case IGLBSifting: return std::get<0>(igLbSifting(in, varMap, InteractionGraph{}));
-			case igUpperLinearSifting: return linearAndSiftingAux(in, varMap, UPLT, InteractionGraph{}, PruningStrategy::NoPruning);
-			case igLowerLinearSifting: return linearAndSiftingAux(in, varMap, LOWLT, InteractionGraph{}, PruningStrategy::NoPruning);
-			case igMixLinearSifting: return mixLinearAndSiftingAux(in, varMap, 1, InteractionGraph{}, PruningStrategy::NoPruning);
+			case IGSifting: return std::get<0>(igSifting(in, varMap, storedIG));
+			case IGLBSifting: return std::get<0>(igLbSifting(in, varMap, storedIG));
+			case igUpperLinearSifting: return linearAndSiftingAux(in, varMap, UPLT, storedIG, PruningStrategy::NoPruning);
+			case igLowerLinearSifting: return linearAndSiftingAux(in, varMap, LOWLT, storedIG, PruningStrategy::NoPruning);
+			case igMixLinearSifting: return mixLinearAndSiftingAux(in, varMap, 1, storedIG, PruningStrategy::NoPruning);
 		}
 
 		return in;
