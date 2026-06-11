@@ -8,6 +8,7 @@ add_library(${PROJECT_NAME}
             ${CMAKE_CURRENT_SOURCE_DIR}/DDlinearv2.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/DDlinearv3.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/DDigSifting.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/DDgroupSifting.cpp
             ${${PROJECT_NAME}_SOURCE_DIR}/include/DDpackage.h
             ${${PROJECT_NAME}_SOURCE_DIR}/include/DDlinear.h
             ${${PROJECT_NAME}_SOURCE_DIR}/include/DDcomplex.h

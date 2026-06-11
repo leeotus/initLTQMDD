@@ -1224,6 +1224,8 @@ dd::Edge QuantumComputation::reduceAncillae(dd::Edge& e, std::unique_ptr<dd::Pac
 		if (name == "igupperls")    return dd::igUpperLinearSifting;
 		if (name == "iglowerls")    return dd::igLowerLinearSifting;
 		if (name == "igmixls")      return dd::igMixLinearSifting;
+		if (name == "group" || name == "GroupSifting")         return dd::GroupSifting;
+		if (name == "iggroup" || name == "IGGroupSifting")     return dd::IGGroupSifting;
 		if (name == "none" || name == "None")                  return dd::None;
 		return dd::None;
 	}
@@ -1244,7 +1246,8 @@ dd::Edge QuantumComputation::reduceAncillae(dd::Edge& e, std::unique_ptr<dd::Pac
 
 		bool useIG = (strat == dd::IGSifting || strat == dd::IGLBSifting ||
 		              strat == dd::igUpperLinearSifting || strat == dd::igLowerLinearSifting ||
-		              strat == dd::igMixLinearSifting);
+		              strat == dd::igMixLinearSifting ||
+		              strat == dd::GroupSifting || strat == dd::IGGroupSifting);
 
 		dd::InteractionGraph ig;
 		if (useIG) {
@@ -1281,10 +1284,16 @@ dd::Edge QuantumComputation::reduceAncillae(dd::Edge& e, std::unique_ptr<dd::Pac
 					case dd::LBSifting:
 						e = std::get<0>(dd->lbSifting(e, map));
 						break;
-					case dd::TightLBSifting:
-						e = std::get<0>(dd->tightLbSifting(e, map));
-						break;
-					default:
+				case dd::TightLBSifting:
+					e = std::get<0>(dd->tightLbSifting(e, map));
+					break;
+				case dd::GroupSifting:
+					e = std::get<0>(dd->groupSifting(e, map, ig));
+					break;
+				case dd::IGGroupSifting:
+					e = std::get<0>(dd->igGroupSifting(e, map, ig));
+					break;
+				default:
 						e = std::get<0>(dd->sifting(e, map));
 						break;
 				}
@@ -1328,10 +1337,16 @@ dd::Edge QuantumComputation::reduceAncillae(dd::Edge& e, std::unique_ptr<dd::Pac
 				case dd::igLowerLinearSifting:
 					e = dd->linearAndSiftingAux(e, map, LOWLT, ig, dd::PruningStrategy::NoPruning);
 					break;
-				case dd::igMixLinearSifting:
-					e = dd->mixLinearAndSiftingAux(e, map, 1, ig, dd::PruningStrategy::NoPruning);
-					break;
-				default:
+			case dd::igMixLinearSifting:
+				e = dd->mixLinearAndSiftingAux(e, map, 1, ig, dd::PruningStrategy::NoPruning);
+				break;
+			case dd::GroupSifting:
+				e = std::get<0>(dd->groupSifting(e, map, ig));
+				break;
+			case dd::IGGroupSifting:
+				e = std::get<0>(dd->igGroupSifting(e, map, ig));
+				break;
+			default:
 					e = dd->dynamicReorder(e, map, strat);
 					break;
 			}

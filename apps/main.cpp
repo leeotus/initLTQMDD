@@ -27,6 +27,8 @@ static void printUsage(const char* prog) {
     fprintf(stderr, "  igupperls  - IG Upper Linear Sifting\n");
     fprintf(stderr, "  iglowerls  - IG Lower Linear Sifting\n");
     fprintf(stderr, "  igmixls    - IG Mix Linear Sifting\n");
+    fprintf(stderr, "  group      - Group Sifting (symmetry-aware)\n");
+    fprintf(stderr, "  iggroup    - IG Group Sifting (symmetry + IG + LB)\n");
     fprintf(stderr, "\n示例:\n");
     fprintf(stderr, "  %s circuit.real sifting\n", prog);
     fprintf(stderr, "  LTQMDD_DYN_SIFT=iglb %s circuit.real\n", prog);

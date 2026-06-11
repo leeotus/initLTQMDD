@@ -483,6 +483,8 @@ namespace dd {
 			case igUpperLinearSifting: return linearAndSiftingAux(in, varMap, UPLT, storedIG, PruningStrategy::NoPruning);
 			case igLowerLinearSifting: return linearAndSiftingAux(in, varMap, LOWLT, storedIG, PruningStrategy::NoPruning);
 			case igMixLinearSifting: return mixLinearAndSiftingAux(in, varMap, 1, storedIG, PruningStrategy::NoPruning);
+			case GroupSifting: return std::get<0>(groupSifting(in, varMap, storedIG));
+			case IGGroupSifting: return std::get<0>(igGroupSifting(in, varMap, storedIG));
 		}
 
 		return in;

@@ -152,7 +152,8 @@ namespace dd {
 		upperLinearSifting, lowerLinearSifting, mixLinearSifting,
 		lbUpperLinearSifting, lbLowerLinearSifting, lbMixLinearSifting,
 		IGSifting, IGLBSifting,
-		igUpperLinearSifting, igLowerLinearSifting, igMixLinearSifting
+		igUpperLinearSifting, igLowerLinearSifting, igMixLinearSifting,
+		GroupSifting, IGGroupSifting
 	};
 
 	enum class PruningStrategy {
@@ -409,6 +410,8 @@ namespace dd {
 		uint64_t countMaxNewNodes(uint16_t level);
 		std::tuple<Edge, unsigned int, unsigned int> igSifting(Edge in, std::map<unsigned short, unsigned short>& varMap, const InteractionGraph& ig);
 		std::tuple<Edge, unsigned int, unsigned int> igLbSifting(Edge in, std::map<unsigned short, unsigned short>& varMap, const InteractionGraph& ig);
+		std::tuple<Edge, unsigned int, unsigned int> groupSifting(Edge in, std::map<unsigned short, unsigned short>& varMap, InteractionGraph& ig);
+		std::tuple<Edge, unsigned int, unsigned int> igGroupSifting(Edge in, std::map<unsigned short, unsigned short>& varMap, InteractionGraph& ig);
 
 
 		// utility
