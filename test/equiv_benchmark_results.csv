@@ -1,0 +1,16 @@
+test_type,circuit_A,circuit_B,qubits,ops_A,ops_B,iggroup_result,iggroup_time_s,iggroup_nodes,none_result,none_time_s,none_nodes,sifting_result,sifting_time_s,sifting_nodes,iglb_result,iglb_time_s,iglb_nodes
+self_equiv,3_17_13.real,3_17_13.real,3,6,6,equiv,0.00362348,4,equiv,0.00146779,4,equiv,0.00535357,4,equiv,0.00208409,4
+self_equiv,rd53_130.real,rd53_130.real,7,30,30,equiv,0.00609766,8,equiv,0.00165549,8,equiv,0.0441032,8,equiv,0.00462317,8
+self_equiv,4mod5-bdd_287.real,4mod5-bdd_287.real,7,8,8,equiv,0.00581537,8,equiv,0.00110159,8,equiv,0.0347033,8,equiv,0.00497407,8
+self_equiv,alu-bdd_288.real,alu-bdd_288.real,7,9,9,equiv,0.00740936,8,equiv,0.000982995,8,equiv,0.035481,8,equiv,0.00670776,8
+self_equiv,f2_232.real,f2_232.real,8,19,19,equiv,0.00538837,9,equiv,0.000868095,9,equiv,0.0537778,9,equiv,0.00483487,9
+self_equiv,cm82a_208.real,cm82a_208.real,8,22,22,equiv,0.00493997,9,equiv,0.00108549,9,equiv,0.050943,9,equiv,0.00455047,9
+self_equiv,rd53_251.real,rd53_251.real,8,27,27,equiv,0.00895315,9,equiv,0.00135389,9,equiv,0.0468087,9,equiv,0.00641496,9
+self_equiv,hwb8_114.real,hwb8_114.real,8,614,614,equiv,0.0514823,9,equiv,0.0465363,9,equiv,0.118602,9,equiv,0.0538597,9
+self_equiv,hwb8_113.real,hwb8_113.real,8,637,637,equiv,0.0613523,9,equiv,0.0547838,9,equiv,0.103185,9,equiv,0.0586772,9
+self_equiv,urf2_154.real,urf2_154.real,8,620,620,equiv,0.0478305,9,equiv,0.0430424,9,equiv,0.0911156,9,equiv,0.0467843,9
+not_equiv,3_17_13.real,3_17_14.real,3,6,6,equiv,0.00226009,4,equiv,0.000783495,4,equiv,0.00457207,4,equiv,0.00278928,4
+not_equiv,rd53_130.real,alu-bdd_288.real,7,30,9,not_equiv,0.0153786,107,not_equiv,0.00196919,115,not_equiv,0.0942334,92,not_equiv,0.0149982,107
+not_equiv,f2_232.real,cm82a_208.real,8,19,22,not_equiv,0.0124,41,not_equiv,0.000984694,41,not_equiv,0.0943881,39,not_equiv,0.0125094,41
+not_equiv,hwb8_114.real,hwb8_113.real,8,614,637,equiv,0.0636667,9,equiv,0.0558036,9,equiv,0.115561,9,equiv,0.061484,9
+not_equiv,rd53_138.real,rd53_139.real,8,12,10,equiv,0.00565877,9,equiv,0.00189349,9,equiv,0.0501094,9,equiv,0.00470767,9

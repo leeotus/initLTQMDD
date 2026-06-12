@@ -11,6 +11,7 @@
 #include "InteractionGraph.h"
 
 #include <unordered_set>
+#include <unordered_map>
 #include <vector>
 #include <array>
 #include <bitset>
@@ -432,6 +433,10 @@ namespace dd {
 	    static inline bool equals(const Edge& a, const Edge& b) {
 		    return a.p == b.p && ComplexNumbers::equals(a.w, b.w);
 	    }
+
+	    // Import DD from another Package instance (requires same variable order)
+	    Edge importDD(const Edge& foreign, Package& source, std::unordered_map<NodePtr, Edge>& importCache);
+	    Edge importDD(const Edge& foreign, Package& source);
 
 	    // Toffoli table insertion and lookup
 	    void TTinsert(unsigned short n, unsigned short m, unsigned short t, const short line[], const Edge& e);

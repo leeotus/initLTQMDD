@@ -1,0 +1,16 @@
+test_type,circuit_A,circuit_B,qubits,ops_A,ops_B,ours_result,ours_time_s,qcec_result,qcec_time_s,speedup
+self_equiv,3_17_13.real,3_17_13.real,3,6,6,equivalent,0.00300386,equivalent,0.035835,11.92
+self_equiv,rd53_130.real,rd53_130.real,7,30,30,UNKNOWN,-1,ERROR,-1,N/A
+self_equiv,4mod5-bdd_287.real,4mod5-bdd_287.real,7,8,8,equivalent,0.00688177,equivalent,0.027162,3.94
+self_equiv,alu-bdd_288.real,alu-bdd_288.real,7,9,9,equivalent,0.0062732,equivalent,0.022638,3.60
+self_equiv,f2_232.real,f2_232.real,8,19,19,UNKNOWN,-1,ERROR,-1,N/A
+self_equiv,cm82a_208.real,cm82a_208.real,8,22,22,UNKNOWN,-1,ERROR,-1,N/A
+self_equiv,rd53_251.real,rd53_251.real,8,27,27,UNKNOWN,-1,ERROR,-1,N/A
+self_equiv,hwb8_114.real,hwb8_114.real,8,614,614,UNKNOWN,-1,ERROR,-1,N/A
+self_equiv,hwb8_113.real,hwb8_113.real,8,637,637,UNKNOWN,-1,ERROR,-1,N/A
+self_equiv,urf2_154.real,urf2_154.real,8,620,620,UNKNOWN,-1,ERROR,-1,N/A
+not_equiv,3_17_13.real,3_17_14.real,3,6,6,equivalent,0.00273127,equivalent,0.030575,11.19
+not_equiv,rd53_130.real,alu-bdd_288.real,7,30,9,not_equivalent,0.0162338,not_equivalent,0.026770,1.64
+not_equiv,f2_232.real,cm82a_208.real,8,19,22,not_equivalent,0.0149818,not_equivalent,0.033694,2.24
+not_equiv,hwb8_114.real,hwb8_113.real,8,614,637,equivalent,0.0660002,equivalent,0.498699,7.55
+not_equiv,rd53_138.real,rd53_139.real,8,12,10,equivalent,0.00467948,equivalent,0.024343,5.20

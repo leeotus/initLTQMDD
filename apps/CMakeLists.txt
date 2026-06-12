@@ -2,23 +2,27 @@ set(APP_MAIN_NAME "ltqmdd")
 set(LB_SIFTING_NAME "lb_sifting")
 set(BENCHMARK_NAME "benchmark")
 set(EQUIV_CHECK_NAME "equiv_check")
+set(REAL2QASM_NAME "real2qasm")
 add_executable(${PROJECT_NAME}_app ${CMAKE_CURRENT_SOURCE_DIR}/app.cpp)
 add_executable(${APP_MAIN_NAME} ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp)
 add_executable(${LB_SIFTING_NAME} ${CMAKE_CURRENT_SOURCE_DIR}/lb_main.cpp)
 add_executable(${BENCHMARK_NAME} ${CMAKE_SOURCE_DIR}/test/benchmark.cpp)
 add_executable(${EQUIV_CHECK_NAME} ${CMAKE_CURRENT_SOURCE_DIR}/equiv_check.cpp)
+add_executable(${REAL2QASM_NAME} ${CMAKE_CURRENT_SOURCE_DIR}/real2qasm.cpp)
 
 target_compile_features(${PROJECT_NAME}_app PUBLIC cxx_std_14)
 target_compile_features(${APP_MAIN_NAME} PUBLIC cxx_std_14)
 target_compile_features(${LB_SIFTING_NAME} PUBLIC cxx_std_14)
 target_compile_features(${BENCHMARK_NAME} PUBLIC cxx_std_14)
 target_compile_features(${EQUIV_CHECK_NAME} PUBLIC cxx_std_17)
+target_compile_features(${REAL2QASM_NAME} PUBLIC cxx_std_17)
 
 set_target_properties(${PROJECT_NAME}_app PROPERTIES CXX_EXTENSIONS OFF)
 set_target_properties(${APP_MAIN_NAME} PROPERTIES CXX_EXTENSIONS OFF)
 set_target_properties(${LB_SIFTING_NAME} PROPERTIES CXX_EXTENSIONS OFF)
 set_target_properties(${BENCHMARK_NAME} PROPERTIES CXX_EXTENSIONS OFF)
 set_target_properties(${EQUIV_CHECK_NAME} PROPERTIES CXX_EXTENSIONS OFF)
+set_target_properties(${REAL2QASM_NAME} PROPERTIES CXX_EXTENSIONS OFF)
 
 
 target_link_libraries(${APP_MAIN_NAME} PUBLIC ${PROJECT_NAME})
@@ -134,4 +138,15 @@ add_custom_command(TARGET ${EQUIV_CHECK_NAME}
                    POST_BUILD
                    COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE_DIR:${EQUIV_CHECK_NAME}>/${EQUIV_CHECK_NAME} ${CMAKE_BINARY_DIR}/${EQUIV_CHECK_NAME}
                    COMMENT "Creating symlink for ${EQUIV_CHECK_NAME}"
+                   VERBATIM)
+
+# Real to QASM converter
+target_link_libraries(${REAL2QASM_NAME} PUBLIC ${PROJECT_NAME})
+if(NOT MSVC)
+        target_compile_options(${REAL2QASM_NAME} PRIVATE -Wall $<$<CONFIG:RELEASE>:-O3>)
+endif()
+add_custom_command(TARGET ${REAL2QASM_NAME}
+                   POST_BUILD
+                   COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE_DIR:${REAL2QASM_NAME}>/${REAL2QASM_NAME} ${CMAKE_BINARY_DIR}/${REAL2QASM_NAME}
+                   COMMENT "Creating symlink for ${REAL2QASM_NAME}"
                    VERBATIM)
