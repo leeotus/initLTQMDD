@@ -1,0 +1,16 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/lijianxian/workshop/initLTQMDD/release/cmake_install.cmake",
+		"/home/lijianxian/workshop/initLTQMDD/release/src/cmake_install.cmake",
+		"/home/lijianxian/workshop/initLTQMDD/release/src/extern/dd_package/cmake_install.cmake",
+		"/home/lijianxian/workshop/initLTQMDD/release/src/extern/dd_package/src/cmake_install.cmake",
+		"/home/lijianxian/workshop/initLTQMDD/release/src/extern/json/cmake_install.cmake",
+		"/home/lijianxian/workshop/initLTQMDD/release/test/cmake_install.cmake",
+		"/home/lijianxian/workshop/initLTQMDD/release/test/extern/dd_package/extern/googletest/cmake_install.cmake",
+		"/home/lijianxian/workshop/initLTQMDD/release/test/extern/dd_package/extern/googletest/googlemock/cmake_install.cmake",
+		"/home/lijianxian/workshop/initLTQMDD/release/test/extern/dd_package/extern/googletest/googletest/cmake_install.cmake",
+		"/home/lijianxian/workshop/initLTQMDD/release/apps/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

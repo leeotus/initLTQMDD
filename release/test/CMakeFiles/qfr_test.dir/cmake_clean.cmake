@@ -1,4 +1,5 @@
 file(REMOVE_RECURSE
+  "CMakeFiles/qfr_test.dir/link.d"
   "CMakeFiles/qfr_test.dir/algorithms/test_bernsteinvazirani.cpp.o"
   "CMakeFiles/qfr_test.dir/algorithms/test_bernsteinvazirani.cpp.o.d"
   "CMakeFiles/qfr_test.dir/algorithms/test_entanglement.cpp.o"

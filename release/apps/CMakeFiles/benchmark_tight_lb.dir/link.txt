@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/benchmark_tight_lb.dir/link.d CMakeFiles/benchmark_tight_lb.dir/__/test/benchmark_tight_lb.cpp.o -o benchmark_tight_lb  ../src/libqfr.a ../src/extern/dd_package/src/libdd_package.a

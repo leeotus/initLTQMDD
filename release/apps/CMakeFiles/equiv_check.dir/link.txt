@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/equiv_check.dir/link.d CMakeFiles/equiv_check.dir/equiv_check.cpp.o -o equiv_check  ../src/libqfr.a ../src/extern/dd_package/src/libdd_package.a

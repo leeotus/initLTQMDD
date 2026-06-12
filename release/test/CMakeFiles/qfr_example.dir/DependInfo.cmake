@@ -8,13 +8,16 @@ set(CMAKE_DEPENDS_LANGUAGES
 
 # The set of dependency files which are needed:
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
-  "/home/planner/workshop_ljx/initLTQMDD/test/main.cpp" "test/CMakeFiles/qfr_example.dir/main.cpp.o" "gcc" "test/CMakeFiles/qfr_example.dir/main.cpp.o.d"
+  "/home/lijianxian/workshop/initLTQMDD/test/main.cpp" "test/CMakeFiles/qfr_example.dir/main.cpp.o" "gcc" "test/CMakeFiles/qfr_example.dir/main.cpp.o.d"
+  "" "test/qfr_example" "gcc" "test/CMakeFiles/qfr_example.dir/link.d"
   )
 
-# Targets to which this target links.
-set(CMAKE_TARGET_LINKED_INFO_FILES
-  "/home/planner/workshop_ljx/initLTQMDD/release/src/CMakeFiles/qfr.dir/DependInfo.cmake"
-  "/home/planner/workshop_ljx/initLTQMDD/release/src/extern/dd_package/src/CMakeFiles/dd_package.dir/DependInfo.cmake"
+# Targets to which this target links which contain Fortran sources.
+set(CMAKE_Fortran_TARGET_LINKED_INFO_FILES
+  )
+
+# Targets to which this target links which contain Fortran sources.
+set(CMAKE_Fortran_TARGET_FORWARD_LINKED_INFO_FILES
   )
 
 # Fortran module output directory.

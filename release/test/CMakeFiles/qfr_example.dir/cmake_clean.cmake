@@ -1,4 +1,5 @@
 file(REMOVE_RECURSE
+  "CMakeFiles/qfr_example.dir/link.d"
   "CMakeFiles/qfr_example.dir/main.cpp.o"
   "CMakeFiles/qfr_example.dir/main.cpp.o.d"
   "qfr_example"

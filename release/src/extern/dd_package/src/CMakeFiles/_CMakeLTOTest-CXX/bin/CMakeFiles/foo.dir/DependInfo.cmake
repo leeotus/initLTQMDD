@@ -8,7 +8,7 @@ set(CMAKE_DEPENDS_LANGUAGES
   )
 # The set of files for implicit dependencies of each language:
 set(CMAKE_DEPENDS_CHECK_CXX
-  "/home/planner/workshop_ljx/initLTQMDD/release/src/extern/dd_package/src/CMakeFiles/_CMakeLTOTest-CXX/src/foo.cpp" "/home/planner/workshop_ljx/initLTQMDD/release/src/extern/dd_package/src/CMakeFiles/_CMakeLTOTest-CXX/bin/CMakeFiles/foo.dir/foo.cpp.o"
+  "/home/lijianxian/workshop/initLTQMDD/release/src/extern/dd_package/src/CMakeFiles/_CMakeLTOTest-CXX/src/foo.cpp" "/home/lijianxian/workshop/initLTQMDD/release/src/extern/dd_package/src/CMakeFiles/_CMakeLTOTest-CXX/bin/CMakeFiles/foo.dir/foo.cpp.o"
   )
 set(CMAKE_CXX_COMPILER_ID "GNU")
 
@@ -20,8 +20,12 @@ set(CMAKE_CXX_TARGET_INCLUDE_PATH
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
   )
 
-# Targets to which this target links.
-set(CMAKE_TARGET_LINKED_INFO_FILES
+# Targets to which this target links which contain Fortran sources.
+set(CMAKE_Fortran_TARGET_LINKED_INFO_FILES
+  )
+
+# Targets to which this target links which contain Fortran sources.
+set(CMAKE_Fortran_TARGET_FORWARD_LINKED_INFO_FILES
   )
 
 # Fortran module output directory.

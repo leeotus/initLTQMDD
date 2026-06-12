@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/benchmark_ig_sifting.dir/link.d CMakeFiles/benchmark_ig_sifting.dir/__/test/benchmark_ig_sifting.cpp.o -o benchmark_ig_sifting  ../src/libqfr.a ../src/extern/dd_package/src/libdd_package.a

@@ -1,6 +1,6 @@
 # CMake generated Testfile for 
-# Source directory: /home/planner/workshop_ljx/initLTQMDD
-# Build directory: /home/planner/workshop_ljx/initLTQMDD/release
+# Source directory: /home/lijianxian/workshop/initLTQMDD
+# Build directory: /home/lijianxian/workshop/initLTQMDD/release
 # 
 # This file includes the relevant testing commands required for 
 # testing this directory and lists subdirectories to be tested as well.

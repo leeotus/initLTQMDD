@@ -1,4 +1,4 @@
-# Install script for directory: /home/planner/workshop_ljx/initLTQMDD/extern/dd_package/src
+# Install script for directory: /home/lijianxian/workshop/initLTQMDD/extern/dd_package/src
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
@@ -37,42 +37,52 @@ if(NOT DEFINED CMAKE_CROSSCOMPILING)
   set(CMAKE_CROSSCOMPILING "FALSE")
 endif()
 
-# Set default install directory permissions.
+# Set path to fallback-tool for dependency-resolution.
 if(NOT DEFINED CMAKE_OBJDUMP)
   set(CMAKE_OBJDUMP "/usr/bin/objdump")
 endif()
 
-if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_COMPONENT)
-  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/lib" TYPE STATIC_LIBRARY FILES "/home/planner/workshop_ljx/initLTQMDD/release/src/extern/dd_package/src/libdd_package.a")
+if(CMAKE_INSTALL_COMPONENT STREQUAL "Unspecified" OR NOT CMAKE_INSTALL_COMPONENT)
+  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/lib" TYPE STATIC_LIBRARY FILES "/home/lijianxian/workshop/initLTQMDD/release/src/extern/dd_package/src/libdd_package.a")
 endif()
 
-if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_COMPONENT)
-  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/include" TYPE DIRECTORY FILES "/home/planner/workshop_ljx/initLTQMDD/extern/dd_package/include/")
+if(CMAKE_INSTALL_COMPONENT STREQUAL "Unspecified" OR NOT CMAKE_INSTALL_COMPONENT)
+  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/include" TYPE DIRECTORY FILES "/home/lijianxian/workshop/initLTQMDD/extern/dd_package/include/")
 endif()
 
-if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_COMPONENT)
+if(CMAKE_INSTALL_COMPONENT STREQUAL "Unspecified" OR NOT CMAKE_INSTALL_COMPONENT)
   if(EXISTS "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/lib/cmake/DDpackage/DDpackageTargets.cmake")
-    file(DIFFERENT EXPORT_FILE_CHANGED FILES
+    file(DIFFERENT _cmake_export_file_changed FILES
          "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/lib/cmake/DDpackage/DDpackageTargets.cmake"
-         "/home/planner/workshop_ljx/initLTQMDD/release/src/extern/dd_package/src/CMakeFiles/Export/lib/cmake/DDpackage/DDpackageTargets.cmake")
-    if(EXPORT_FILE_CHANGED)
-      file(GLOB OLD_CONFIG_FILES "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/lib/cmake/DDpackage/DDpackageTargets-*.cmake")
-      if(OLD_CONFIG_FILES)
-        message(STATUS "Old export file \"$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/lib/cmake/DDpackage/DDpackageTargets.cmake\" will be replaced.  Removing files [${OLD_CONFIG_FILES}].")
-        file(REMOVE ${OLD_CONFIG_FILES})
+         "/home/lijianxian/workshop/initLTQMDD/release/src/extern/dd_package/src/CMakeFiles/Export/ad970e1bf1574a0a553183b8717daa46/DDpackageTargets.cmake")
+    if(_cmake_export_file_changed)
+      file(GLOB _cmake_old_config_files "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/lib/cmake/DDpackage/DDpackageTargets-*.cmake")
+      if(_cmake_old_config_files)
+        string(REPLACE ";" ", " _cmake_old_config_files_text "${_cmake_old_config_files}")
+        message(STATUS "Old export file \"$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/lib/cmake/DDpackage/DDpackageTargets.cmake\" will be replaced.  Removing files [${_cmake_old_config_files_text}].")
+        unset(_cmake_old_config_files_text)
+        file(REMOVE ${_cmake_old_config_files})
       endif()
+      unset(_cmake_old_config_files)
     endif()
+    unset(_cmake_export_file_changed)
   endif()
-  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/lib/cmake/DDpackage" TYPE FILE FILES "/home/planner/workshop_ljx/initLTQMDD/release/src/extern/dd_package/src/CMakeFiles/Export/lib/cmake/DDpackage/DDpackageTargets.cmake")
-  if("${CMAKE_INSTALL_CONFIG_NAME}" MATCHES "^([Rr][Ee][Ll][Ee][Aa][Ss][Ee])$")
-    file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/lib/cmake/DDpackage" TYPE FILE FILES "/home/planner/workshop_ljx/initLTQMDD/release/src/extern/dd_package/src/CMakeFiles/Export/lib/cmake/DDpackage/DDpackageTargets-release.cmake")
+  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/lib/cmake/DDpackage" TYPE FILE FILES "/home/lijianxian/workshop/initLTQMDD/release/src/extern/dd_package/src/CMakeFiles/Export/ad970e1bf1574a0a553183b8717daa46/DDpackageTargets.cmake")
+  if(CMAKE_INSTALL_CONFIG_NAME MATCHES "^([Rr][Ee][Ll][Ee][Aa][Ss][Ee])$")
+    file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/lib/cmake/DDpackage" TYPE FILE FILES "/home/lijianxian/workshop/initLTQMDD/release/src/extern/dd_package/src/CMakeFiles/Export/ad970e1bf1574a0a553183b8717daa46/DDpackageTargets-release.cmake")
   endif()
 endif()
 
-if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_COMPONENT)
+if(CMAKE_INSTALL_COMPONENT STREQUAL "Unspecified" OR NOT CMAKE_INSTALL_COMPONENT)
   file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/lib/cmake/DDpackage" TYPE FILE FILES
-    "/home/planner/workshop_ljx/initLTQMDD/release/src/extern/dd_package/src/DDpackageConfig.cmake"
-    "/home/planner/workshop_ljx/initLTQMDD/release/src/extern/dd_package/src/DDpackageConfigVersion.cmake"
+    "/home/lijianxian/workshop/initLTQMDD/release/src/extern/dd_package/src/DDpackageConfig.cmake"
+    "/home/lijianxian/workshop/initLTQMDD/release/src/extern/dd_package/src/DDpackageConfigVersion.cmake"
     )
 endif()
 
+string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
+       "${CMAKE_INSTALL_MANIFEST_FILES}")
+if(CMAKE_INSTALL_LOCAL_ONLY)
+  file(WRITE "/home/lijianxian/workshop/initLTQMDD/release/src/extern/dd_package/src/install_local_manifest.txt"
+     "${CMAKE_INSTALL_MANIFEST_CONTENT}")
+endif()
