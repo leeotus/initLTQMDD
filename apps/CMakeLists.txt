@@ -1,20 +1,24 @@
 set(APP_MAIN_NAME "ltqmdd")
 set(LB_SIFTING_NAME "lb_sifting")
 set(BENCHMARK_NAME "benchmark")
+set(EQUIV_CHECK_NAME "equiv_check")
 add_executable(${PROJECT_NAME}_app ${CMAKE_CURRENT_SOURCE_DIR}/app.cpp)
 add_executable(${APP_MAIN_NAME} ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp)
 add_executable(${LB_SIFTING_NAME} ${CMAKE_CURRENT_SOURCE_DIR}/lb_main.cpp)
 add_executable(${BENCHMARK_NAME} ${CMAKE_SOURCE_DIR}/test/benchmark.cpp)
+add_executable(${EQUIV_CHECK_NAME} ${CMAKE_CURRENT_SOURCE_DIR}/equiv_check.cpp)
 
 target_compile_features(${PROJECT_NAME}_app PUBLIC cxx_std_14)
 target_compile_features(${APP_MAIN_NAME} PUBLIC cxx_std_14)
 target_compile_features(${LB_SIFTING_NAME} PUBLIC cxx_std_14)
 target_compile_features(${BENCHMARK_NAME} PUBLIC cxx_std_14)
+target_compile_features(${EQUIV_CHECK_NAME} PUBLIC cxx_std_17)
 
 set_target_properties(${PROJECT_NAME}_app PROPERTIES CXX_EXTENSIONS OFF)
 set_target_properties(${APP_MAIN_NAME} PROPERTIES CXX_EXTENSIONS OFF)
 set_target_properties(${LB_SIFTING_NAME} PROPERTIES CXX_EXTENSIONS OFF)
 set_target_properties(${BENCHMARK_NAME} PROPERTIES CXX_EXTENSIONS OFF)
+set_target_properties(${EQUIV_CHECK_NAME} PROPERTIES CXX_EXTENSIONS OFF)
 
 
 target_link_libraries(${APP_MAIN_NAME} PUBLIC ${PROJECT_NAME})
@@ -116,4 +120,18 @@ add_custom_command(TARGET ${IG_BENCH_NAME}
                    POST_BUILD
                    COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE_DIR:${IG_BENCH_NAME}>/${IG_BENCH_NAME} ${CMAKE_BINARY_DIR}/${IG_BENCH_NAME}
                    COMMENT "Creating symlink for ${IG_BENCH_NAME}"
+                   VERBATIM)
+
+# Equivalence Checker
+target_link_libraries(${EQUIV_CHECK_NAME} PUBLIC ${PROJECT_NAME})
+if(MSVC)
+        target_compile_options(${EQUIV_CHECK_NAME} PUBLIC "/W4" "$<$<CONFIG:RELEASE>:/O2 /GL>")
+        target_link_options(${EQUIV_CHECK_NAME} PUBLIC "$<$<CONFIG:Release>:/LTCG>")
+else()
+        target_compile_options(${EQUIV_CHECK_NAME} PRIVATE -Wall $<$<CONFIG:DEBUG>:-g3 -Og> $<$<CONFIG:RELEASE>:-O3 -mtune=native -march=native>)
+endif()
+add_custom_command(TARGET ${EQUIV_CHECK_NAME}
+                   POST_BUILD
+                   COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE_DIR:${EQUIV_CHECK_NAME}>/${EQUIV_CHECK_NAME} ${CMAKE_BINARY_DIR}/${EQUIV_CHECK_NAME}
+                   COMMENT "Creating symlink for ${EQUIV_CHECK_NAME}"
                    VERBATIM)
