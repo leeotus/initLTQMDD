@@ -773,10 +773,66 @@ namespace dd {
 
     // counts number of unique nodes in a DD
     unsigned int Package::size(const Edge &e) {
-		static std::unordered_set<NodePtr> visited{NODECOUNT_BUCKETS}; // 2e6
+		static thread_local std::unordered_set<NodePtr> visited{NODECOUNT_BUCKETS}; // 2e6
 	    visited.max_load_factor(10);
         visited.clear();
         return nodeCount(e, visited);
+    }
+
+    Edge Package::importDD(const Edge& foreign, Package& source) {
+        std::unordered_map<NodePtr, Edge> cache;
+        return importDD(foreign, source, cache);
+    }
+
+    Edge Package::importDD(const Edge& foreign, Package& source, std::unordered_map<NodePtr, Edge>& importCache) {
+        if (isTerminal(foreign)) {
+            fp rVal = ComplexNumbers::val(foreign.w.r);
+            fp iVal = ComplexNumbers::val(foreign.w.i);
+            if (std::abs(rVal) < CN::TOLERANCE && std::abs(iVal) < CN::TOLERANCE)
+                return DDzero;
+            auto w = cn.lookup(rVal, iVal);
+            return {terminalNode, w};
+        }
+
+        auto cacheIt = importCache.find(foreign.p);
+        if (cacheIt != importCache.end()) {
+            Edge cached = cacheIt->second;
+            // Multiply foreign edge weight with cached node's normalized weight
+            fp fR = ComplexNumbers::val(foreign.w.r);
+            fp fI = ComplexNumbers::val(foreign.w.i);
+            fp cR = ComplexNumbers::val(cached.w.r);
+            fp cI = ComplexNumbers::val(cached.w.i);
+            fp resR = fR * cR - fI * cI;
+            fp resI = fR * cI + fI * cR;
+            if (std::abs(resR) < CN::TOLERANCE && std::abs(resI) < CN::TOLERANCE)
+                return DDzero;
+            cached.w = cn.lookup(resR, resI);
+            return cached;
+        }
+
+        std::array<Edge, NEDGE> edges;
+        for (int i = 0; i < NEDGE; i++) {
+            edges[i] = importDD(foreign.p->e[i], source, importCache);
+        }
+
+        auto e = makeNonterminal(foreign.p->v, edges.data(), false);
+
+        // Cache the node with its normalized weight = ONE conceptually
+        // We store e as-is (after normalization by makeNonterminal)
+        importCache[foreign.p] = e;
+
+        // Apply foreign edge weight
+        fp fR = ComplexNumbers::val(foreign.w.r);
+        fp fI = ComplexNumbers::val(foreign.w.i);
+        fp eR = ComplexNumbers::val(e.w.r);
+        fp eI = ComplexNumbers::val(e.w.i);
+        fp resR = fR * eR - fI * eI;
+        fp resI = fR * eI + fI * eR;
+        if (std::abs(resR) < CN::TOLERANCE && std::abs(resI) < CN::TOLERANCE)
+            return DDzero;
+        e.w = cn.lookup(resR, resI);
+
+        return e;
     }
 
 

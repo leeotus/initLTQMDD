@@ -57,7 +57,7 @@ add_library(${PROJECT_NAME}
 add_library(JKQ::${PROJECT_NAME} ALIAS ${PROJECT_NAME})
 target_include_directories(${PROJECT_NAME} PUBLIC
                            $<BUILD_INTERFACE:${${PROJECT_NAME}_SOURCE_DIR}/include>)
-target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_14)
+target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_EXTENSIONS OFF)
 
 option(TRY_USING_INSTALLED_DD_PACKAGE "Attempt searching for installed version of DD package and use it if found" OFF)
@@ -76,6 +76,10 @@ else()
 endif ()
 
 target_link_libraries(${PROJECT_NAME} PUBLIC JKQ::DDpackage)
+
+# add threading support
+find_package(Threads REQUIRED)
+target_link_libraries(${PROJECT_NAME} PUBLIC Threads::Threads)
 
 # add nlohmann::json library
 set(JSON_BuildTests OFF CACHE INTERNAL "")

@@ -5,6 +5,9 @@
 
 #include "QuantumComputation.hpp"
 #include <math.h>
+#include <pthread.h>
+#include <sched.h>
+#include <atomic>
 
 namespace qc {
 
@@ -2125,5 +2128,186 @@ dd::Edge QuantumComputation::reduceAncillae(dd::Edge& e, std::unique_ptr<dd::Pac
 			++atEnd;
 		}
 		return true;
+	}
+
+	dd::Edge QuantumComputation::buildFunctionalityParallelMerge(
+		std::unique_ptr<dd::Package>& dd, permutationMap& theMap,
+		dd::DynamicReorderingStrategy strat, unsigned int numThreads)
+	{
+		if (nqubits + nancillae == 0)
+			return dd->DDone;
+
+		unsigned short totalQubits = nqubits + nancillae;
+		size_t totalOps = ops.size();
+
+		if (totalOps == 0)
+			return dd->DDone;
+
+		if (numThreads < 1) numThreads = 1;
+		if (numThreads > totalOps) numThreads = totalOps;
+
+		// Phase 1: Build global IG
+		dd::InteractionGraph globalIG;
+		globalIG.initForNqubits(totalQubits);
+		for (auto& op : ops) {
+			globalIG.addGate(op);
+		}
+
+		// Phase 2: Split ops into many micro-blocks for dynamic scheduling
+		// Use small block size so work can be distributed more evenly
+		size_t microBlockSize = std::max((size_t)4, totalOps / (numThreads * 8));
+		std::vector<std::pair<size_t, size_t>> microBlocks;
+		for (size_t i = 0; i < totalOps; i += microBlockSize) {
+			size_t end = std::min(i + microBlockSize, totalOps);
+			microBlocks.push_back({i, end});
+		}
+		size_t numMicroBlocks = microBlocks.size();
+
+		// Phase 3: Work-stealing parallel build
+		// Each thread grabs the next available micro-block via atomic counter.
+		// Each micro-block produces its own small DD in an independent Package.
+		struct MicroBlockResult {
+			std::unique_ptr<dd::Package> pkg;
+			dd::Edge edge;
+			size_t blockIndex;
+		};
+
+		std::atomic<size_t> nextBlock{0};
+		std::vector<MicroBlockResult> allResults(numMicroBlocks);
+		std::mutex resultMutex;
+
+		permutationMap baseMap = initialLayout;
+
+		auto workerFn = [&](unsigned int threadId) {
+			// Bind thread to CPU core
+			cpu_set_t cpuset;
+			CPU_ZERO(&cpuset);
+			unsigned int coreId = threadId % std::thread::hardware_concurrency();
+			CPU_SET(coreId, &cpuset);
+			pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+
+			while (true) {
+				size_t blockIdx = nextBlock.fetch_add(1, std::memory_order_relaxed);
+				if (blockIdx >= numMicroBlocks) break;
+
+				size_t bStart = microBlocks[blockIdx].first;
+				size_t bEnd = microBlocks[blockIdx].second;
+
+				auto localPkg = std::make_unique<dd::Package>();
+				localPkg->setMode(dd::Matrix);
+
+				dd::Edge e = localPkg->makeIdent(0, short(totalQubits - 1));
+				localPkg->incRef(e);
+
+				std::array<short, MAX_QUBITS> line{};
+				line.fill(LINE_DEFAULT);
+				permutationMap localMap = baseMap;
+
+				for (size_t i = bStart; i < bEnd; i++) {
+					auto newDD = ops[i]->getDD(localPkg, line, localMap);
+					localPkg->incRef(newDD);
+
+					auto tmp = localPkg->multiply(newDD, e);
+					localPkg->incRef(tmp);
+					localPkg->decRef(e);
+					localPkg->decRef(newDD);
+					e = tmp;
+
+					localPkg->garbageCollect();
+				}
+
+				{
+					std::lock_guard<std::mutex> lock(resultMutex);
+					allResults[blockIdx] = {std::move(localPkg), e, blockIdx};
+				}
+			}
+		};
+
+		// Launch worker threads
+		std::vector<std::thread> threads;
+		threads.reserve(numThreads);
+		for (unsigned int t = 0; t < numThreads; t++) {
+			threads.emplace_back(workerFn, t);
+		}
+		for (auto& th : threads) {
+			th.join();
+		}
+
+		// Phase 4: Merge all micro-block DDs in order
+		dd->setMode(dd::Matrix);
+		dd::Edge result = createInitialMatrix(dd);
+
+		for (size_t i = 0; i < numMicroBlocks; i++) {
+			auto& blk = allResults[i];
+			if (!blk.pkg) continue;
+
+			dd::Edge imported = dd->importDD(blk.edge, *blk.pkg);
+			dd->incRef(imported);
+
+			auto tmp = dd->multiply(imported, result);
+			dd->incRef(tmp);
+			dd->decRef(result);
+			dd->decRef(imported);
+			result = tmp;
+
+			// Release micro-block Package memory early
+			blk.pkg.reset();
+			dd->garbageCollect();
+		}
+
+		// Phase 5: Final sifting on merged result
+		permutationMap map = initialLayout;
+
+		if (strat != dd::None) {
+			bool useIG = (strat == dd::IGSifting || strat == dd::IGLBSifting ||
+			              strat == dd::igUpperLinearSifting || strat == dd::igLowerLinearSifting ||
+			              strat == dd::igMixLinearSifting ||
+			              strat == dd::GroupSifting || strat == dd::IGGroupSifting);
+
+			if (useIG) {
+				dd->setInteractionGraph(globalIG);
+			}
+
+			switch (strat) {
+				case dd::Sifting:
+					result = std::get<0>(dd->sifting(result, map));
+					break;
+				case dd::LBSifting:
+					result = std::get<0>(dd->lbSifting(result, map));
+					break;
+				case dd::TightLBSifting:
+					result = std::get<0>(dd->tightLbSifting(result, map));
+					break;
+				case dd::IGSifting:
+					result = std::get<0>(dd->igSifting(result, map, globalIG));
+					break;
+				case dd::IGLBSifting:
+					result = std::get<0>(dd->igLbSifting(result, map, globalIG));
+					break;
+				case dd::igUpperLinearSifting:
+					result = dd->linearAndSiftingAux(result, map, UPLT, globalIG, dd::PruningStrategy::NoPruning);
+					break;
+				case dd::igLowerLinearSifting:
+					result = dd->linearAndSiftingAux(result, map, LOWLT, globalIG, dd::PruningStrategy::NoPruning);
+					break;
+				case dd::igMixLinearSifting:
+					result = dd->mixLinearAndSiftingAux(result, map, 1, globalIG, dd::PruningStrategy::NoPruning);
+					break;
+				case dd::GroupSifting:
+					result = std::get<0>(dd->groupSifting(result, map, globalIG));
+					break;
+				case dd::IGGroupSifting:
+					result = std::get<0>(dd->igGroupSifting(result, map, globalIG));
+					break;
+				default:
+					result = std::get<0>(dd->sifting(result, map));
+					break;
+			}
+		}
+
+		theMap = map;
+		result = reduceAncillae(result, dd);
+
+		return result;
 	}
 }

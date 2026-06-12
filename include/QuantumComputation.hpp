@@ -23,6 +23,9 @@
 #include <limits>
 #include <string>
 #include <locale>
+#include <thread>
+#include <future>
+#include <mutex>
 
 #define DEBUG_MODE_QC 0
 
@@ -192,6 +195,7 @@ namespace qc {
 		virtual dd::Edge buildFunDynSift(std::unique_ptr<dd::Package>& dd, permutationMap& theMap);
 		virtual dd::Edge buildFunDynLinSift(std::unique_ptr<dd::Package>& dd, permutationMap& theMap);
 		virtual dd::Edge buildFunctionalityDynamic(std::unique_ptr<dd::Package>& dd, permutationMap& theMap, dd::DynamicReorderingStrategy strat);
+		virtual dd::Edge buildFunctionalityParallelMerge(std::unique_ptr<dd::Package>& dd, permutationMap& theMap, dd::DynamicReorderingStrategy strat, unsigned int numThreads = 4);
 		static dd::DynamicReorderingStrategy parseDynSiftStrategy(const std::string& name);
 		virtual dd::Edge simulate(const dd::Edge& in, std::unique_ptr<dd::Package>& dd);
 
