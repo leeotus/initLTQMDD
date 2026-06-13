@@ -67,21 +67,21 @@ int main(int argc, char **argv) {
         end = clock();
         double buildTime = (double)(end - start) / CLOCKS_PER_SEC;
         auto initialSize = ddptr->size(graph);
-        cout << fileName << " 初始DD大小: " << initialSize << ", 构造时间: " << buildTime << "s" << endl;
+        cout << fileName << " 初始DD大小: " << initialSize << ", 时间: " << buildTime << "s" << endl;
 
         // Post-hoc sifting to convergence
-        start = clock();
-        qc::permutationMap map = qc.initialLayout;
-        int prev = initialSize;
-        for (int i = 0; i < 10; ++i) {
-            graph = ddptr->dynamicReorder(graph, map, dd::Sifting);
-            auto sz = (int)ddptr->size(graph);
-            if (sz == prev) break;
-            prev = sz;
-        }
-        end = clock();
-        double siftTime = (double)(end - start) / CLOCKS_PER_SEC;
-        cout << fileName << " sifting收敛: " << ddptr->size(graph) << ", 时间: " << siftTime << "s" << endl;
+        // start = clock();
+        // qc::permutationMap map = qc.initialLayout;
+        // int prev = initialSize;
+        // for (int i = 0; i < 10; ++i) {
+        //     graph = ddptr->dynamicReorder(graph, map, dd::Sifting);
+        //     auto sz = (int)ddptr->size(graph);
+        //     if (sz == prev) break;
+        //     prev = sz;
+        // }
+        // end = clock();
+        // double siftTime = (double)(end - start) / CLOCKS_PER_SEC;
+        // cout << fileName << " sifting收敛: " << ddptr->size(graph) << ", 时间: " << siftTime << "s" << endl;
 
     } else {
         // Dynamic sifting during construction
