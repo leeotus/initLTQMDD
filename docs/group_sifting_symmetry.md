@@ -73,26 +73,37 @@ IG 编码了电路的**静态结构信息**，独立于 DD 的动态状态。
 
 ### 2.2 启发性工作
 
-本工作受以下文献启发：
+相关文献简述：
 
-1. **BDD Symmetric Sifting** [5]：Panda & Somenzi (1995) 在 BDD 中首次提出利用变量对称性加速 sifting。检测方法是在 sifting 过程中动态验证：若交换两个相邻变量后 BDD size 不变，则标记为对称对。
+1. **BDD Symmetric Sifting** [5]：Panda & Somenzi (1994) 在 BDD 中首次提出利用变量对称性加速 sifting。检测方法是在 sifting 过程中通过实际交换两个相邻变量后检查 BDD size 是否不变（运行时检测），提取对称对后跳过后续重复 sifting。
 
-2. **Group Sifting for BDDs** [6]：Fey & Drechsler (2004) 将对称变量编组，组内变量绑定在一起移动（保持相对顺序），减少搜索空间。
+2. **Group Sifting for BDDs**：Panda & Somenzi 同期工作 [5]（同一篇 ICCAD 1994 论文）还将对称变量编组，组内仅对代表执行 sifting，其余成员放置在代表附近。后续 Fey & Drechsler 的工作在此基础上做了扩展。
 
-3. **Interaction Graph for Quantum Circuits** [4]：Zulehner & Wille (2019) 使用 IG 指导量子电路编译中的 qubit 映射，展示了 IG 对电路结构信息的有效编码能力。
+3. **Hypergraph Partitioning for BDD Initial Ordering（MINCE 算法）**[6]：Aloul, Markov & Sakallah (2004) 将 CNF/BLIF 电路的超图结构用于静态变量序启发式，使用 hMetis 划分超图使交互密切的变量在 BDD 中相邻。这是 BDD 领域与 IG 在"交互建模"思想上最接近的工作，但 MINCE 仅做排序前的静态初始序，不参与动态 sifting 中的方向或对称性决策。
 
-4. **Variable Ordering for QMDDs** [7]：Niemann et al. (2014) 研究了 QMDD 变量序对 DD size 的影响，指出好的初始序可大幅减少后续 sifting 工作量。
+4. **FSM Communication Graph** [7]：Aziz, Taşiran & Brayton (1994) 用有限状态机的通信图指导 BDD 变量序，证明了 BDD size 的上界与通信图性质有关。此工作同样只用于初始序估计。
 
-5. **Graph Automorphism & Symmetry Detection** [8]：McKay & Piperno (2014) 的 nauty/Traces 算法是图自同构检测的标准工具，其"分区细化"思想启发了本工作中的 profile-based 对称检测。详见下方 §2.4。
+5. **Interaction Graph for Quantum Circuits** [4]：Zulehner & Wille (2019) 使用 IG 指导量子电路编译中的 qubit 映射，展示了 IG 对电路结构信息的有效编码能力。本工作受此启发但用途不同——其原文用于 NISQ 设备的 qubit 路由分配，本工作用于 QMDD 变量重排序中的方向引导和对称性检测。
+
+6. **Variable Ordering for QMDDs** [8]：Niemann et al. (2014) 研究了 QMDD 变量序对 DD size 的影响，指出好的初始序可大幅减少后续 sifting 工作量。
+
+7. **Graph Automorphism & Symmetry Detection** [9]：McKay & Piperno (2014) 的 nauty/Traces 算法是图自同构检测的标准工具，其"分区细化"思想启发了本工作中的 profile-based 对称检测。详见下方 §2.4。
+
+**与已有 BDD 工作的关键区别**：
+- Panda & Somenzi 的对称检测通过**实际执行交换并验证 DD size**，在 sifting 过程中动态进行。本工作通过 IG profile 的静态比较，在 sifting 之前一次性完成。
+- MINCE 使用超图划分做**静态初始序**，不参与动态 sifting 的方向或对称性决策。本工作的 IG 用于动态 sifting 的**实时方向引导**和对称组检测。
+- 以上所有 BDD 工作均针对 2 边 BDD。本工作针对 **4 边 QMDD**。
+- **本工作是在 QMDD 中首次将 IG 用于 sifting 方向引导和对称组检测**，且在动态构建过程中支持增量 IG 更新。
 
 ### 2.3 本工作的创新点
 
 | 维度 | 已有工作 | 本工作 |
 |------|---------|--------|
-| 对称性来源 | DD 结构（运行时检测） | IG 电路结构（静态预测） |
+| 对称性来源 | DD 结构（运行时交换检测） | IG 电路结构（静态 profile 比较） |
 | 检测时机 | sifting 过程中逐对验证 | sifting 前一次性批量检测 |
 | 适用场景 | BDD (2-edge) | QMDD (4-edge) |
 | 利用方式 | 跳过对称对的交换 | 代表 sifting + 组内聚合 |
+| IG 应用 | 仅限初始序（MINCE/FSM-Comm） | 动态方向引导 + 对称检测 |
 | 增量能力 | 无 | 支持增量 IG 下的动态检测 |
 
 ### 2.4 Graph Automorphism & Symmetry Detection 详解
@@ -109,7 +120,7 @@ $$\forall (u,v) \in E: \quad (\pi(u), \pi(v)) \in E$$
 
 #### 2.4.2 nauty/Traces 算法的核心思想
 
-nauty（No AUTomorphisms, Yes?）[8] 是计算图自同构群的经典工具，核心算法为**分区细化（Partition Refinement）**：
+nauty（No AUTomorphisms, Yes?）[9] 是计算图自同构群的经典工具，核心算法为**分区细化（Partition Refinement）**：
 
 1. **初始分区**：将所有顶点放入一个单元（cell），即 $\Pi_0 = \{V\}$
 2. **细化**：根据每个顶点与各单元的连接模式（邻居在各单元中的分布）拆分单元。若两个顶点与某单元的连接数不同，则它们不可能属于同一轨道（orbit），应分入不同单元
@@ -621,14 +632,16 @@ $$
 
 [4] A. Zulehner and R. Wille, "Compiling SU(4) quantum circuits to IBM QX architectures," in Proc. ASP-DAC, pp. 185–190, 2019.
 
-[5] S. Panda and F. Somenzi, "Who are the variables in your neighborhood," in Proc. ICCAD, pp. 74–77, 1995.
+[5] S. Panda and F. Somenzi, "Symmetry detection and dynamic variable ordering of decision diagrams," in Proc. ICCAD, pp. 74–77, 1994. — *BDD 对称性检测与 group sifting 的原始工作。检测方法为运行时交换验证。*
 
-[6] C. Fey and R. Drechsler, "Minimizing the number of paths in BDDs: Theory and algorithm," IEEE Trans. on CAD, vol. 25, no. 1, pp. 4–21, 2006.
+[6] F. A. Aloul, I. L. Markov, and K. A. Sakallah, "MINCE: A static global variable-ordering heuristic for SAT search and BDD manipulation," Journal of Universal Computer Science, vol. 10, no. 12, pp. 1562–1591, 2004. — *超图划分用于 BDD 初始序，是 IG "交互建模"思想在 BDD 领域最接近的类比。*
 
-[7] P. Niemann, R. Wille, D. M. Miller, M. A. Thornton, and R. Drechsler, "QMDDs: Efficient quantum function representation and manipulation," IEEE Trans. on CAD, vol. 35, no. 1, pp. 86–99, 2016.
+[7] A. Aziz, S. Taşiran, and R. K. Brayton, "BDD variable ordering for interacting finite state machines," in Proc. DAC, pp. 283–289, 1994. — *通信图用于 BDD 初始序估计。*
 
-[8] B. D. McKay and A. Piperno, "Practical graph isomorphism, II," Journal of Symbolic Computation, vol. 60, pp. 94–112, 2014.
+[8] P. Niemann, R. Wille, D. M. Miller, M. A. Thornton, and R. Drechsler, "QMDDs: Efficient quantum function representation and manipulation," IEEE Trans. on CAD, vol. 35, no. 1, pp. 86–99, 2016.
 
-[9] R. Wille, D. Große, L. Teuber, G. W. Dueck, and R. Drechsler, "RevLib: An online resource for reversible functions and reversible circuits," in Proc. ISMVL, pp. 220–225, 2008.
+[9] B. D. McKay and A. Piperno, "Practical graph isomorphism, II," Journal of Symbolic Computation, vol. 60, pp. 94–112, 2014.
 
-[10] S. Hillmich, A. Zulehner, and R. Wille, "Decision diagrams for quantum computing," in Design Automation of Quantum Computers, Springer, pp. 1–26, 2022.
+[10] R. Wille, D. Große, L. Teuber, G. W. Dueck, and R. Drechsler, "RevLib: An online resource for reversible functions and reversible circuits," in Proc. ISMVL, pp. 220–225, 2008.
+
+[11] S. Hillmich, A. Zulehner, and R. Wille, "Decision diagrams for quantum computing," in Design Automation of Quantum Computers, Springer, pp. 1–26, 2022.

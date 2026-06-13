@@ -8,7 +8,7 @@ QMDD 动态变量重排序（Dynamic Reordering）的目标是在量子电路 DD
 
 **问题 2**：Interaction Graph 一次性从完整电路构建，不随构建进度更新。构建前期 IG 包含了尚未处理的门的交互信息，对当前 DD 状态形成误导。
 
-**问题 3**：Lower Bound 公式中的合并因子使用 $/2$（源自 BDD 文献），但 QMDD 每节点有 $\text{NEDGE}=4$ 条出边，合并潜力更大。$/2$ 作为下界对 QMDD 不合法（可能高于实际最优值），导致错误剪枝。
+**问题 3**：Lower Bound 公式中的合并因子使用 $/2$（源自 BDD 领域的 Friedman-Supowit LB [1]），但 QMDD 每节点有 $\text{NEDGE}=4$ 条出边，合并潜力更大。$/2$ 作为下界对 QMDD 不合法（可能高于实际最优值），导致错误剪枝。
 
 **问题 4**：Lower Bound 公式中的循环上界 `j <= n`（`n = varMap.size()`）越界访问 `varMap[n]`，引发未定义行为。
 

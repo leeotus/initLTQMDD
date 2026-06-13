@@ -182,7 +182,23 @@ auto e = dd->dynamicReorder(e, map, dd::igUpperLinearSifting);
 
 ---
 
-## 8. 理论依据
+## 8. 与已有 BDD 工作的关联
+
+### 8.1 "交互建模"思想在 BDD 中的类似工作
+
+BDD 领域存在两个与 IG 方向性类似的工作，但用途与本工作有本质区别：
+
+| 对比维度 | MINCE 算法 (Aloul et al., 2004) | FSM Comm Graph (Aziz et al., 1994) | 本工作 (IG for QMDD Sifting) |
+|---------|-------------------------------|-------------------------------|-------------------------------|
+| 建模对象 | CNF/BLIF 超图 | FSM 通信图 | QMDD qubit 交互图 |
+| 使用时机 | 仅 sifting 前初始序 | 仅初始序估计 | 动态 sifting 全程 |
+| 参与 sifting | 不参与 | 不参与 | 方向引导 + 变量选择 + 对称检测 |
+| DD 类型 | BDD (2-edge) | BDD (2-edge) | QMDD (4-edge) |
+| 是否支持增量 | 否 | 否 | 是（增量 IG 更新） |
+
+**关键区别**：MINCE 和 FSM Comm Graph 生成一个静态变量序后不再改变，sifting 在该初始序上运行。本工作的 IG 参与 sifting 的**每一步方向决策**，并在对称性检测中提供静态 profile 比对。
+
+### 8.2 理论关联
 
 让高权边对应的 qubit 在 DD 中尽量相邻，等价于经典的 **Minimum Linear Arrangement (MLA)** 问题：
 
