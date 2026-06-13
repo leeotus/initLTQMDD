@@ -190,6 +190,9 @@ namespace dd {
     }
 
     // ================== igLbSifting (LB pruning + IG guidance) ==================
+    // Relaxed LB: use a factor to avoid premature pruning on complex circuits.
+    // The factor trades off pruning aggressiveness vs. exploration depth.
+    static constexpr double LB_RELAX_FACTOR = 1.1;  // was 1.0 (original: lb > min)
 
     std::tuple<Edge, unsigned int, unsigned int> Package::igLbSifting(
         Edge in, std::map<unsigned short, unsigned short>& varMap,
@@ -223,19 +226,19 @@ namespace dd {
             bool upFirst = shouldSiftUpFirst(pos, pos, n, invVarMap, ig);
 
             if (!upFirst) {
-                // sifting down with LB pruning
+                // sifting down with relaxed LB pruning
                 while (pos > 0) {
                     uint64_t lb = computeLowerBoundDown(varMap, pos);
-                    if (lb > min) break;
+                    if (lb > min * LB_RELAX_FACTOR) break;
                     exchangeBaseCase(pos, in, varMap);
                     auto s = size(in); total_min = std::min(total_min, s); total_max = std::max(total_max, s);
                     assert(is_locally_consistent_dd(in)); --pos;
                     if (s < min) { min = s; optimalPos = pos; }
                 }
-                // sifting up with LB pruning
+                // sifting up with relaxed LB pruning
                 while (pos < n - 1) {
                     uint64_t lb = computeLowerBoundUp(varMap, pos);
-                    if (lb > min) break;
+                    if (lb > min * LB_RELAX_FACTOR) break;
                     exchangeBaseCase(pos + 1, in, varMap);
                     auto s = size(in); total_min = std::min(total_min, s); total_max = std::max(total_max, s);
                     assert(is_locally_consistent_dd(in)); ++pos;
@@ -253,19 +256,19 @@ namespace dd {
                     assert(is_locally_consistent_dd(in)); ++pos;
                 }
             } else {
-                // sifting up with LB pruning
+                // sifting up with relaxed LB pruning
                 while (pos < n - 1) {
                     uint64_t lb = computeLowerBoundUp(varMap, pos);
-                    if (lb > min) break;
+                    if (lb > min * LB_RELAX_FACTOR) break;
                     exchangeBaseCase(pos + 1, in, varMap);
                     auto s = size(in); total_min = std::min(total_min, s); total_max = std::max(total_max, s);
                     assert(is_locally_consistent_dd(in)); ++pos;
                     if (s < min) { min = s; optimalPos = pos; }
                 }
-                // sifting down with LB pruning
+                // sifting down with relaxed LB pruning
                 while (pos > 0) {
                     uint64_t lb = computeLowerBoundDown(varMap, pos);
-                    if (lb > min) break;
+                    if (lb > min * LB_RELAX_FACTOR) break;
                     exchangeBaseCase(pos, in, varMap);
                     assert(is_locally_consistent_dd(in));
                     auto s = size(in); total_min = std::min(total_min, s); total_max = std::max(total_max, s);
