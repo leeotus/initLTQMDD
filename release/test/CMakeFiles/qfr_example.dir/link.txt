@@ -1,1 +1,0 @@
-/usr/bin/c++ -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/qfr_example.dir/link.d CMakeFiles/qfr_example.dir/main.cpp.o -o qfr_example  ../src/libqfr.a ../src/extern/dd_package/src/libdd_package.a

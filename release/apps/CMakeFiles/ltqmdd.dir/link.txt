@@ -1,1 +1,0 @@
-/usr/bin/c++ -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/ltqmdd.dir/link.d CMakeFiles/ltqmdd.dir/main.cpp.o -o ltqmdd  ../src/libqfr.a ../src/extern/dd_package/src/libdd_package.a

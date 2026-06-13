@@ -1,1 +1,0 @@
-/usr/bin/c++ -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/circuit_resynth.dir/link.d CMakeFiles/circuit_resynth.dir/circuit_resynth.cpp.o -o circuit_resynth  ../src/libqfr.a ../src/extern/dd_package/src/libdd_package.a

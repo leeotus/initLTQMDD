@@ -1,2 +1,0 @@
-"/usr/bin/gcc-ar-15" qc libdd_package.a CMakeFiles/dd_package.dir/DDpackage.cpp.o CMakeFiles/dd_package.dir/DDdebug.cpp.o CMakeFiles/dd_package.dir/DDcomplex.cpp.o CMakeFiles/dd_package.dir/DDexport.cpp.o CMakeFiles/dd_package.dir/DDreorder.cpp.o CMakeFiles/dd_package.dir/DDlinear.cpp.o CMakeFiles/dd_package.dir/DDlinearv2.cpp.o CMakeFiles/dd_package.dir/DDlinearv3.cpp.o CMakeFiles/dd_package.dir/DDigSifting.cpp.o CMakeFiles/dd_package.dir/DDgroupSifting.cpp.o
-"/usr/bin/gcc-ranlib-15" libdd_package.a
