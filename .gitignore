@@ -8,3 +8,5 @@
 /releaseDynamic
 /releaseStatic
 /debugDynamic
+/build_qec
+/build_*

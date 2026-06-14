@@ -703,7 +703,148 @@ Round 10: 0.9872
 
 ---
 
-## 参考文献
+## 13. 已有工作的文献调研
+
+> 本节回答：**是否有已有的 QMDD（或 Decision Diagram）作用于 QEC 的工作？**
+
+### 13.1 核心结论
+
+**在 Decision Diagram 用于量子纠错码模拟这一具体问题上，目前没有发现已发表的直接工作。** 具体来说：
+
+- **QMDD 文献**（Niemann et al. 2016, Zulehner & Wille TCAD 2018, Hillmich et al. 2022 Springer）聚焦于 DD 的表示能力、构建效率、变量重排序和通用量子电路模拟，**未涉及 QEC 专用模拟**
+- **DD-based 噪声模拟**（Grurl et al. TCAD 2023，即 ddsim 的前身）支持通用噪声模型但未做 QEC 特化
+- **量子纠错模拟工具**（Stim, Qiskit Aer, QuEST）不使用 DD 作为底层表示
+
+因此，**将 QMDD（含 IG/Group Sifting 等重排序技术）应用于 QEC 模拟是一个新颖的交叉方向**。
+
+### 13.2 直接相关的 DD/量子工作
+
+#### 13.2.1 QMDD 的奠基工作
+
+**P. Niemann, R. Wille, D. M. Miller, M. A. Thornton, R. Drechsler. "QMDDs: Efficient Quantum Function Representation and Manipulation." IEEE TCAD, 35(1):86–99, 2016.**
+
+- QMDD 的定义、唯一性证明、基础操作（add, multiply, Kronecker）
+- 实验在 RevLib 可逆电路集上验证（非 QEC 电路）
+- **未涉及量子纠错码**
+
+#### 13.2.2 DD Package 与通用模拟
+
+**A. Zulehner, S. Hillmich, R. Wille. "How to Efficiently Handle Complex Values? Implementing Decision Diagrams for Quantum Computing." ICCAD 2019.**
+
+- 描述 JKQ DD Package（本项目的上游）的设计与实现
+- 重点在复数缓存（Complex Table）、计算表优化
+- **未涉及 QEC 场景**
+
+#### 13.2.3 DD-based 噪声感知模拟（核心前驱）
+
+**T. Grurl, R. Kueng, J. Fuß, R. Wille. "Stochastic Quantum Circuit Simulation Using Decision Diagrams." IEEE TCAD, 42(1):307–321, 2023.**
+**（前身为 DATE 2021 会议论文 "Considering Decoherence Errors in the Simulation of Quantum Circuits Using Decision Diagrams"）**
+
+- **这是与本项目最直接相关的工作**——本项目的 ddsim 即基于该工作
+- 在 DD 模拟框架中引入噪声算子（Amplitude Damping, Phase Flip, Depolarization）
+- 使用 Stochastic unraveling 方法处理噪声通道
+- 实验在标准量子算法上验证（Grover, Shor, QFT），**不含 QEC 电路**
+- 噪声注入方法**与 QEC 的 syndrome extraction 流程正交**——前者是通用的噪声模拟，后者需要 syndrome 反馈的条件纠错
+
+#### 13.2.4 DD-based 等价性检查
+
+**L. Burgholzer, R. Wille. "Advanced Equivalence Checking for Quantum Circuits." IEEE TCAD, 40(9):1810–1824, 2021.**
+
+- 用 DD 验证两个量子电路的等价性
+- 提出了截断和近似等价检查
+- **可用于验证编码后电路与原逻辑电路的等价性**（无噪声下），但不涉及噪声模拟或纠错
+
+#### 13.2.5 DD-based 编译与映射
+
+**A. Zulehner, R. Wille. "Compiling SU(4) Quantum Circuits to IBM QX Architectures." ASP-DAC 2019, pp. 185–190.**
+
+- 使用 Interaction Graph (IG) 指导 qubit 映射（逻辑 qubit → 物理 qubit）
+- IG 编码了 qubit 间的交互频率，用于求解最小 SWAP 插入
+- **IG 分析与 QEC 的分析需求高度重叠**——QEC 的 stabilizer 结构会在 IG 上产生清晰的对称模式
+
+#### 13.2.6 DD 在量子计算中的综述
+
+**S. Hillmich, A. Zulehner, R. Wille. "Decision Diagrams for Quantum Computing." In: Design Automation of Quantum Computers, Springer, pp. 1–26, 2022.**
+
+- 综述了 DD 在量子计算中的各类应用：模拟、等价检查、编译、验证
+- **未提及 QEC 作为单独的应用场景**
+
+### 13.3 相邻领域的相关工作
+
+#### 13.3.1 Tensor Network 用于 QEC 模拟
+
+**A. Darmawan, D. Poulin. "Tensor-Network Simulations of the Surface Code under Realistic Noise." PRL 119:040502, 2017.**
+
+- 使用 Tensor Network (MPS/PEPS) 模拟 Surface Code 的纠错过程
+- Tensor Network 和 DD 在数学上存在对应关系（两者都是 tensor 的低秩分解）
+- **DD 相对于 Tensor Network 的优势**：DD 能精确表示非低秩结构（如 T 门的 magic state），而 TN 在非低秩场景下 bond dimension 会爆炸
+
+#### 13.3.2 Stim — Stabilizer 快速模拟
+
+**C. Gidney. "Stim: a fast stabilizer circuit simulator." Quantum 5:497, 2021.**
+
+- 使用 stabilizer tableau 做 Clifford 电路的快速模拟
+- 支持 noise channel（通过 Pauli frame propagation）和 syndrome extraction
+- **局限**：不支持非 Clifford 门（T, Toffoli, 任意 angle rotation）
+- **本项目的优势**：QMDD 天然支持任意酉门，对于含 T 门的 QEC 电路（如容错实现）有不可替代的价值
+
+#### 13.3.3 Qiskit Aer — 全状态向量模拟
+
+**Qiskit Development Team. "Qiskit Aer: A High-Performance Simulator for Quantum Circuits." 2021.**
+**（基于 "Qiskit: An Open-source Framework for Quantum Computing", doi:10.5281/zenodo.2562110, 2019）**
+
+- 支持 state vector, density matrix, stabilizer 等多种模拟方法
+- **密度矩阵模拟可用于 QEC**，但矩阵大小随 qubit 数指数增长
+- DD 的紧凑表示在处理具有大量结构的 QEC 电路时有潜力超越密度矩阵方法
+
+#### 13.3.4 QuEST / Qulacs — 高性能量子模拟器
+
+**T. Jones et al. "QuEST and High Performance Simulation of Quantum Computers." Scientific Reports 9:10736, 2019.**
+**Y. Suzuki et al. "Qulacs: a fast and versatile quantum circuit simulator for research purpose." Quantum 5:559, 2021.**
+
+- 纯状态向量模拟，针对多核/GPU 优化
+- 不支持 DD 压缩，状态向量大小始终为 $2^n$
+- **当 n~30 时不再是优势**
+
+#### 13.3.5 BDD 用于可逆逻辑的错误检测（概念相关）
+
+**R. Wille, R. Drechsler. "Effect of BDD Optimization on the Synthesis of Reversible and Quantum Logic." IET Electronics Letters, 2012.**
+**S.-A. Wang, C.-Y. Lu, I.-M. Tsai, S.-Y. Kuo. "An XQDD-Based Verification Method for Quantum Circuits." IEICE Trans. Fundamentals, 2008.**
+
+- XQDD (X-decomposition Quantum Decision Diagram) 用于量子电路验证
+- 利用 BDD-based 方法做可逆电路的错误检测（如 missing gate faults）
+- **与 QEC 不同**：这是测试电路制造缺陷，非运行时错误纠正
+
+### 13.4 本项目的创新点定位
+
+综合上述文献分析，**"QMDD + IG/Group Sifting + ddsim 噪声模拟 → QEC 高效模拟"这个方向有明确的创新空间**：
+
+| 维度 | 已有工作 | 本项目计划 |
+|------|---------|-----------|
+| **DD 用于 QEC** | **无** | **首次探索** |
+| DD + 噪声模拟 | Grurl et al. 2023 (通用) | 扩展到 QEC 专用的 syndrome-based 反馈 |
+| IG 对称分析 | Zulehner & Wille 2019 (mapping) | 用于检测 stabilizer 对称性 |
+| Group Sifting 加速 | 本项目已有工具 | 应用于 QEC 电路的特殊对称结构 |
+| Clifford+non-Clifford QEC 模拟 | Stim 不支持非 Clifford | QMDD 天然支持 |
+
+**最好的发表对标**：
+- 若在 **TCAD/DAC/DATE** 发：强调 DD-based QEC simulator 的工具性和效率
+- 若在 **Quantum/PRX Quantum** 发：强调 "novel simulation methodology enabling the study of QEC codes with non-Clifford gates under realistic noise"
+- 若在 **ICCAD/ASP-DAC** 发：强调 DD 优化的技术细节（对称性利用、Group Sifting 加速）
+
+### 13.5 推荐的 Paper 标题与抽象框架
+
+**建议标题**（几个选项）：
+1. "Harnessing Decision Diagram Symmetries for Efficient Simulation of Quantum Error-Correcting Codes"
+2. "QMDD-based Simulation of Quantum Error Correction: Exploiting Stabilizer Structure via Interaction Graphs"
+3. "Efficient QEC Circuit Simulation Using Interaction-Graph-Guided Decision Diagram Reordering"
+
+**核心 claim**：
+> We demonstrate that QMDD with IG-based symmetry detection (Group Sifting) can simulate QEC-protected quantum circuits with non-Clifford gates at scales beyond state-vector simulators, by exploiting the structural repetition and stabilizer symmetries inherent to QEC codes — a synergy that has not been explored in prior DD or QEC literature.
+
+---
+
+## 参考文献（完整列表）
 
 [1] D. Gottesman, "An Introduction to Quantum Error Correction and Fault-Tolerant Quantum Computation," arXiv:0904.2557, 2009.
 
@@ -717,4 +858,26 @@ Round 10: 0.9872
 
 [6] E. Knill, "Quantum computing with realistically noisy devices," Nature 434:39–44, 2005.
 
-[7] S. Hillmich et al., "Decision Diagrams for Quantum Computing," Springer 2022.
+[7] S. Hillmich, A. Zulehner, R. Wille, "Decision Diagrams for Quantum Computing," in Design Automation of Quantum Computers, Springer, pp. 1–26, 2022.
+
+[8] P. Niemann, R. Wille, D. M. Miller, M. A. Thornton, R. Drechsler, "QMDDs: Efficient Quantum Function Representation and Manipulation," IEEE TCAD, 35(1):86–99, 2016.
+
+[9] A. Zulehner, S. Hillmich, R. Wille, "How to Efficiently Handle Complex Values? Implementing Decision Diagrams for Quantum Computing," ICCAD 2019.
+
+[10] T. Grurl, R. Kueng, J. Fuß, R. Wille, "Stochastic Quantum Circuit Simulation Using Decision Diagrams," IEEE TCAD, 42(1):307–321, 2023. (前身: DATE 2021)
+
+[11] A. Zulehner, R. Wille, "Compiling SU(4) Quantum Circuits to IBM QX Architectures," ASP-DAC 2019, pp. 185–190.
+
+[12] L. Burgholzer, R. Wille, "Advanced Equivalence Checking for Quantum Circuits," IEEE TCAD, 40(9):1810–1824, 2021.
+
+[13] A. Darmawan, D. Poulin, "Tensor-Network Simulations of the Surface Code under Realistic Noise," PRL 119:040502, 2017.
+
+[14] T. Jones et al., "QuEST and High Performance Simulation of Quantum Computers," Scientific Reports 9:10736, 2019.
+
+[15] Y. Suzuki et al., "Qulacs: a fast and versatile quantum circuit simulator for research purpose," Quantum 5:559, 2021.
+
+[16] R. Wille, R. Drechsler, "Effect of BDD Optimization on the Synthesis of Reversible and Quantum Logic," IET Electronics Letters, 2012.
+
+[17] S.-A. Wang, C.-Y. Lu, I.-M. Tsai, S.-Y. Kuo, "An XQDD-Based Verification Method for Quantum Circuits," IEICE Trans. Fundamentals, 2008.
+
+[18] A. Zulehner, R. Wille, "Advanced Simulation of Quantum Computations," IEEE TCAD, 2018.

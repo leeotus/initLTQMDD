@@ -65,3 +65,8 @@ option(BUILD_DDSIM "Also build ddsim simulator frontend" OFF)
 if(BUILD_DDSIM)
 	add_subdirectory(ddsim)
 endif()
+
+option(BUILD_QEC "Build QEC simulation framework" OFF)
+if(BUILD_QEC)
+	add_subdirectory(qec)
+endif()
