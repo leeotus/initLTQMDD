@@ -1,6 +1,6 @@
 set(APP_MAIN_NAME "ltqmdd")
 set(LB_SIFTING_NAME "lb_sifting")
-set(BENCHMARK_NAME "benchmark")
+set(BENCHMARK_NAME "qfr_benchmark")
 set(EQUIV_CHECK_NAME "equiv_check")
 set(RESYNTH_NAME "circuit_resynth")
 add_executable(${PROJECT_NAME}_app ${CMAKE_CURRENT_SOURCE_DIR}/app.cpp)

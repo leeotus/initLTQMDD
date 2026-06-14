@@ -5,3 +5,6 @@
 /build_test
 /build
 /release
+/releaseDynamic
+/releaseStatic
+/debugDynamic

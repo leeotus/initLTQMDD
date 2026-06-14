@@ -1,0 +1,45 @@
+set(DDSIM_APP_TARGET ddsim)
+
+set(Boost_USE_MULTITHREADED ON)
+set(Boost_USE_STATIC_RUNTIME OFF)
+find_package( Boost 1.50 COMPONENTS program_options )
+
+if(Boost_FOUND)
+	message(STATUS "Boost version: ${Boost_VERSION}")
+else()
+	message(STATUS "Boost not found. Certain targets may not be available.")
+endif()
+
+include(GNUInstallDirs)
+
+macro(add_sim_executable APPNAME)
+	add_executable(${DDSIM_APP_TARGET}_${APPNAME} ${CMAKE_CURRENT_SOURCE_DIR}/${APPNAME}.cpp)
+	target_compile_features(${DDSIM_APP_TARGET}_${APPNAME} PUBLIC cxx_std_14)
+	set_target_properties(${DDSIM_APP_TARGET}_${APPNAME} PROPERTIES CXX_EXTENSIONS OFF)
+	target_link_libraries(${DDSIM_APP_TARGET}_${APPNAME} PUBLIC ${DDSIM_APP_TARGET} ${ARGN})
+
+	if(MSVC)
+		target_compile_options(${DDSIM_APP_TARGET}_${APPNAME} PUBLIC "/W4" "$<$<CONFIG:RELEASE>:/O2 /GL>")
+		target_link_options(${DDSIM_APP_TARGET}_${APPNAME} PUBLIC "$<$<CONFIG:Release>:/LTCG>")
+	else()
+		target_compile_options(${DDSIM_APP_TARGET}_${APPNAME} PUBLIC -Wall $<$<CONFIG:DEBUG>:-Og -Wextra -Wpedantic -pedantic> $<$<CONFIG:RELEASE>:-DNDEBUG -g0 -O3 -mtune=native -march=native>)
+	endif()
+
+	install(TARGETS ${DDSIM_APP_TARGET}_${APPNAME} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endmacro()
+
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package( Threads )
+link_libraries( Threads::Threads)
+
+if(Boost_FOUND)
+	add_sim_executable(simple Boost::program_options)
+	add_sim_executable(primebases Boost::program_options)
+	if(Threads_FOUND)
+		add_sim_executable(noise_aware Boost::program_options )
+	endif()
+else()
+	message(STATUS "Did not find Boost! Commandline interface will not be an available target!")
+endif()
+add_sim_executable(benchmark benchmark::benchmark_main)
+add_sim_executable(vectors)

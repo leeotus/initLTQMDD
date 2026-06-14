@@ -60,3 +60,8 @@ option(BUILD_QFR_BINDINGS "Also build Python bindings for QFR project" OFF)
 if(BUILD_QFR_BINDINGS)
 	add_subdirectory(jkq/qfr)
 endif()
+
+option(BUILD_DDSIM "Also build ddsim simulator frontend" OFF)
+if(BUILD_DDSIM)
+	add_subdirectory(ddsim)
+endif()
