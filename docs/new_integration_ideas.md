@@ -32,7 +32,7 @@
 将 QMDD 作为编译器的**IR（中间表示）**，在 DD 层面做全局优化：
 
 ```
-输入电路 → buildFunctionalityDynamic (DD + sifting) → 紧凑 DD
+输入电路 → buildFunctionalityDynamic (DD + igGroupSifting) → 紧凑 DD
                                                           ↓
 输出电路 ← DD 直接分解 (Shannon/CSD) ← Givens 分析 ← ExtractMatrix
 ```
