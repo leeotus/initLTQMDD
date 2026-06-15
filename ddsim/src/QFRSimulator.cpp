@@ -1,5 +1,16 @@
 #include "QFRSimulator.hpp"
 
+void QFRSimulator::buildInteractionGraph() {
+    if (ig_initialized) return;
+    const unsigned short n_qubits = qc->getNqubits();
+    ig.initForNqubits(n_qubits);
+    for (auto &op : *qc) {
+        if (op->isNonUnitaryOperation()) continue;
+        ig.addGate(op);
+    }
+    ig_initialized = true;
+}
+
 std::map<std::string, unsigned int> QFRSimulator::Simulate(unsigned int shots) {
     bool has_nonunitary = false;
     for (auto &op : *qc) {
@@ -104,7 +115,7 @@ void QFRSimulator::single_shot() {
                       << " statesize=" << dd->size(root_edge) << "\n";//*/
 
 
-            if (dynamic_reorder > 0 && pre_op_size > 1000 && pre_op_size < reorder_max_nodes && ops_since_reorder > 3) {
+            if (dynamic_reorder > 0 && pre_op_size > dyn_sift_threshold && pre_op_size < reorder_max_nodes && ops_since_reorder > 3) {
                 dd->garbageCollect(true);
 
                 if (dynamic_reorder == 1) {
@@ -113,6 +124,14 @@ void QFRSimulator::single_shot() {
                     move_to_top(op, variable_map);
                 } else if (dynamic_reorder == 3) {
                     move_to_bottom(op, variable_map);
+                } else if (dynamic_reorder == 4) {
+                    // Group Sifting
+                    buildInteractionGraph();
+                    std::tie(root_edge, sifting_min, sifting_max) = dd->groupSifting(root_edge, variable_map, ig);
+                } else if (dynamic_reorder == 5) {
+                    // IG Group Sifting (with LB pruning + IG direction)
+                    buildInteractionGraph();
+                    std::tie(root_edge, sifting_min, sifting_max) = dd->igGroupSifting(root_edge, variable_map, ig);
                 } else {
                     throw std::runtime_error("Unknown dynamic reordering strategy");
                 }
@@ -160,6 +179,14 @@ void QFRSimulator::single_shot() {
     variable_map_postsim = variable_map;
     if (post_reorder == 1) {
         std::tie(root_edge, sifting_min, sifting_max) = dd->sifting(root_edge, variable_map);
+        reorder_count++;
+    } else if (post_reorder == 4) {
+        buildInteractionGraph();
+        std::tie(root_edge, sifting_min, sifting_max) = dd->groupSifting(root_edge, variable_map, ig);
+        reorder_count++;
+    } else if (post_reorder == 5) {
+        buildInteractionGraph();
+        std::tie(root_edge, sifting_min, sifting_max) = dd->igGroupSifting(root_edge, variable_map, ig);
         reorder_count++;
     } else if (dynamic_reorder || initial_reorder) {
         qc->changePermutation(root_edge, variable_map, qc->outputPermutation, line, dd);
@@ -234,8 +261,19 @@ std::map<std::string, double> QFRSimulator::StochSimulate() {
     }
     printf("Conducting perfect run ...\n");
 
+    // Pre-compute IG for sifting reuse across stochastic runs
+    if (dynamic_reorder >= 4) {
+        buildInteractionGraph();
+    }
+
     Simulate(1);
     dd::Edge noiseless_root_edge = root_edge;
+
+    // Cache optimal variable map from the perfect run for reuse
+    if (dynamic_reorder > 0 && !variable_map_postsim.empty()) {
+        cached_optimal_varMap = variable_map_postsim;
+        has_cached_varMap = true;
+    }
 
     // Generate a vector for each instance + 1. the final vector stores the average of all runs and is calculated
     // after the runs have finished
@@ -319,6 +357,14 @@ QFRSimulator::runStochSimulationForId(int stochRun, int n_qubits, dd::Edge rootE
         std::map<unsigned int, bool> classic_values;
         local_root_edge = localDD->makeZeroState(n_qubits);
         localDD->incRef(local_root_edge);
+
+        // Reuse cached optimal variable ordering from perfect run
+        std::map<unsigned short, unsigned short> local_varMap;
+        for (int i = 0; i < n_qubits; i++) {
+            local_varMap.insert({static_cast<unsigned short>(i), static_cast<unsigned short>(i)});
+        }
+
+        unsigned int local_ops_since_sift = 0;
         for (auto &op : *qc) {
             if (!op->isUnitary() && !(op->isClassicControlledOperation())) {
                 if (auto *nu_op = dynamic_cast<qc::NonUnitaryOperation *>(op.get())) {
@@ -397,6 +443,18 @@ QFRSimulator::runStochSimulationForId(int stochRun, int n_qubits, dd::Edge rootE
 //                    applyNoiseOperation(targets.front(), controls, identity_DD, (std::unique_ptr<dd::Package> &) localDD, local_root_edge, generator, dist, line, identity_DD);
 //                }
                 applyNoiseOperation(targets.front(), controls, dd_op, (std::unique_ptr<dd::Package> &) localDD, local_root_edge, generator, dist, line, identity_DD);
+
+                // Lightweight sifting for stochastic runs (relaxed threshold)
+                local_ops_since_sift++;
+                if (dynamic_reorder > 0 && local_ops_since_sift > 5) {
+                    auto cur_size = localDD->size(local_root_edge);
+                    if (cur_size > dyn_sift_threshold * 2) {
+                        localDD->garbageCollect(true);
+                        unsigned int smin_local, smax_local;
+                        std::tie(local_root_edge, smin_local, smax_local) = localDD->sifting(local_root_edge, local_varMap);
+                        local_ops_since_sift = 0;
+                    }
+                }
             }
 //            printf("current run %lu, operation nr %lu\n", current_run, operation_nr);
 //            operation_nr += 1;

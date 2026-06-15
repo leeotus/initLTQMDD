@@ -1,392 +1,340 @@
-# QMDD 应用方向拓展：基于 IG/GroupSifting + ddsim 模拟器的上层场景
+# IG Group Sifting 在 QMDD 量子模拟中的应用
 
-## 概述
+## 1. 背景：DD 模拟中变量序的核心影响
 
-本项目目前已具备以下核心技术栈：
+### 1.1 DD Size 如何影响 Gate Apply 速度
 
-| 能力 | 描述 |
+QMDD 模拟器（ddsim）的核心操作是 `gate_dd × state_dd`（矩阵-向量 DD 乘法）。其时间复杂度正比于状态向量 DD 的节点数：
+
+$$T_{\text{apply}} = O(|V_{\text{gate}}| \cdot |V_{\text{state}}|)$$
+
+当状态 DD 因差的变量序而膨胀时，**每一个后续门的 apply 都变慢**。这是累积效应：
+
+- 10-qubit 电路，好序 DD size ≈ 50，差序 DD size ≈ 500 → 每门 apply 慢 10×
+- 100 个门 → 总模拟时间差 1000×
+
+### 1.2 DD Size 如何影响内存消耗
+
+DD 节点数直接决定内存占用。QMDD 每节点包含 4 条边（各含复数权重），单节点约 80-128 bytes。
+
+| DD size | 内存估算 |
+|---------|---------|
+| 1000 | ~128 KB |
+| 100,000 | ~12 MB |
+| 10,000,000 | ~1.2 GB |
+
+对 20+ qubit 电路，无 sifting 时 DD 可能膨胀到数千万节点导致 OOM。
+
+### 1.3 DD Size 如何影响近似精度
+
+ddsim 的 `step_fidelity` 近似通过丢弃小系数节点压缩 DD。丢弃的安全性取决于：
+- 好变量序 → 信息集中在少量大系数节点 → 小系数节点确实不重要 → 近似精确
+- 差变量序 → 信息分散 → 被迫丢弃重要信息 → fidelity 下降
+
+### 1.4 Group Sifting 的独特优势
+
+| 特性 | Plain Sifting | IG Group Sifting |
+|------|--------------|-----------------|
+| Sift 单元数 | n 个变量 | g+r 个单元（g 组 + r 单体） |
+| 每次 sift 开销 | O(n²) | O(u·n·s̄)，u<n |
+| 可触发频率 | 低（太慢） | 高（更快完成） |
+| 对称结构利用 | 无 | 组整体移动，全局更优 |
+| 适合场景 | 通用 | 有对称性的电路（QEC、QFT、Hamiltonian） |
+
+---
+
+## 2. 应用一：Sifting 加速状态向量模拟
+
+### 2.1 问题建模
+
+ddsim 的 `QFRSimulator::Simulate` 流程：
+
+```
+for each gate in circuit:
+    gate_dd = buildGateDD(gate)
+    state_dd = gate_dd × state_dd   // 核心开销
+    if DD_size > threshold:
+        trigger_sifting(state_dd)    // 压缩
+```
+
+当前 ddsim 已有 `dynamic_reorder` 参数控制 sifting 策略。问题是：
+1. 默认策略仅支持 plain sifting，无 IG/Group 选项
+2. 触发阈值固定（`dynThreshold = 500`），不考虑电路特征
+3. 模拟的是**状态向量 DD**（而非功能矩阵 DD），sifting 行为可能不同
+
+### 2.2 集成方案
+
+在 `QFRSimulator` 中集成 IG Group Sifting：
+
+**步骤 1**：构建前预计算 IG（一次性，O(gates) 时间）
+```cpp
+// QFRSimulator::Simulate 开始时
+InteractionGraph ig;
+ig.initForNqubits(nqubits);
+for (auto& op : qc->ops) ig.addGate(op);
+ig.detectSymmetry();
+dd->setInteractionGraph(ig);
+```
+
+**步骤 2**：模拟循环中周期性触发 igGroupSifting
+```cpp
+// 在 single_shot() 中每施加一个门后
+if (dd->size(state_dd) > dynThreshold) {
+    auto [result, smin, smax] = dd->igGroupSifting(state_dd, varMap, ig);
+    state_dd = result;
+}
+```
+
+**步骤 3**：暴露策略选择给用户
+```
+--dynamic_reorder 选项扩展：
+  0 = none
+  1 = plain sifting（已有）
+  2 = igGroupSifting（新增）
+  3 = groupSifting（新增）
+```
+
+### 2.3 关键实现细节
+
+**状态向量 DD vs 功能矩阵 DD 的差异**：
+- 功能矩阵 DD：每节点 4 条边（2×2 矩阵元素）
+- 状态向量 DD：每节点 2 条边（|0⟩和|1⟩分支）
+- sifting 的 `exchangeBaseCase` 对两种 DD 结构都适用（它操作的是 DD 层级结构，不依赖边数）
+
+**IG 对状态向量模拟的适用性**：
+- IG 编码的是门之间的 qubit 交互关系
+- 对状态向量 DD，IG 对称意味着两个 qubit 在电路中承受完全相同的门作用模式
+- 因此交换它们的 DD 层不影响 size → IG 对称性对状态向量 DD 同样有效
+
+### 2.4 实验设计
+
+| 维度 | 设置 |
 |------|------|
-| **QMDD 紧凑表示** | 以决策图形式高效存储/操作量子酉矩阵和状态向量 |
-| **IG 引导重排序** | 基于 qubit 交互图指导 DD 变量序优化 |
-| **Group Sifting** | 利用 IG 对称性检测加速变量重排序 |
-| **Linear Sifting** | Xor-based 线性变换扩展搜索空间 |
-| **Tight LB 剪枝** | 基于子节点共享度的更紧下界加速 sifting |
-| **ddsim 模拟** | QMDD-based 状态向量模拟 + 含噪随机模拟 |
-| **电路重综合** | DD → 酉矩阵 → Givens 分解 → 门序列 |
+| 测试电路 | RevLib 中 10-20 qubit 电路 + 算法电路（QFT、Grover、QAOA） |
+| 策略对比 | none / sifting / group / iggroup |
+| 度量指标 | 总模拟时间、峰值 DD size、峰值内存、最终 DD size |
+| 控制变量 | 固定 dynThreshold=500，固定 seed |
 
-基于以上能力，本文档聚焦于**上层应用场景**——即这套技术栈能解决什么实际问题、能产出什么样的研究成果。
+**预期结论**：
+- 大电路（15+ qubit）：iggroup 比 none 快 2-5×，比 sifting 快 10-30%
+- 高对称电路（ham15、QFT）：group/iggroup 优势最大
+- 小电路（< 8 qubit）：差异不大，sifting 开销 ≈ apply 开销
+
+### 2.5 涉及的代码改动
+
+| 文件 | 改动 |
+|------|------|
+| `ddsim/include/QFRSimulator.hpp` | 添加 `InteractionGraph ig` 成员 |
+| `ddsim/src/QFRSimulator.cpp` | `Simulate` 中预计算 IG，`single_shot` 中替换 sifting 策略 |
+| `ddsim/apps/simple.cpp` | `--dynamic_reorder` 参数扩展为支持 0/1/2/3 |
+| `ddsim/apps/noise_aware.cpp` | 同上 |
 
 ---
 
-## 1. 量子编译器的 DD 驱动优化后端
+## 3. 应用二：含噪模拟的 Sifting 复用
 
-### 应用场景
+### 3.1 Stochastic 含噪模拟的瓶颈
 
-现有量子编译器（Qiskit/tket/Cirq）的优化 pass 大多基于 gate-level 的规则匹配（如 CNOT cancellation、gate commutation）。这些方法受限于：
-- 只能在**局部窗口**内做优化
-- 无法感知**全局矩阵结构**
-- 编译后的电路仍然存在大量冗余
-
-### 方案：DD-based 全局优化 Pass
-
-将 QMDD 作为编译器的**IR（中间表示）**，在 DD 层面做全局优化：
+ddsim 的 `StochSimulate` 通过 Monte Carlo 方法模拟噪声：
 
 ```
-输入电路 → buildFunctionalityDynamic (DD + sifting) → 紧凑 DD
-                                                          ↓
-输出电路 ← DD 直接分解 (Shannon/CSD) ← Givens 分析 ← ExtractMatrix
+for run = 1 to N:  // N = 1000~10000
+    state = |0...0⟩
+    for each gate in circuit:
+        state = gate × state
+        state = inject_noise(state, random)  // 随机 Kraus 算子
+    measure(state) → 记录结果
+统计测量结果分布
 ```
 
-**核心价值**：
-- Sifting 压缩 DD 等价于**全局重排 qubit 交互顺序**，找到 gate-level 永远无法发现的结构
-- IG 编码了电路的**全局交互拓扑**，可指导分解顺序使 CNOT 最少
-- 输出电路比输入电路更精简（即使输入已经经过 gate-level 优化）
+**关键观察**：每次运行都独立构建 DD、独立 sift。N 次运行的 sifting 总开销 = N × 单次 sifting 开销。对 N=1000，sifting 可能占总时间的 30-50%。
 
-**产出的研究**：
-- 提出 "DD-assisted quantum circuit optimization" 框架
-- 在 RevLib/IBM Q 基准集上与 tket/Qiskit O3 对比
-- 度量为编译后电路的门数、深度、CNOT 数、在真实硬件的 fidelity
+### 3.2 核心洞察：IG 独立于噪声
 
-**对标的已有工作**：
-- IBM 的 Qiskit transpiler (gate-level)
-- Cambridge Quantum 的 tket (peephole optimization)
-- Wille 组的 DD-based 等价性检查（但不做编译优化）
+**定理**：IG 仅由电路的**门拓扑**决定（哪些 qubit 对之间有多体门），与以下因素无关：
+- 门的具体参数（rotation angle）
+- 噪声注入的随机选择
+- 状态向量的具体数值
 
----
+**推论**：
+1. 对称组检测结果对所有 N 次运行相同
+2. 第一次运行找到的最优变量序，对后续运行是一个非常好的初始序
+3. 即使噪声导致 DD 结构略有偏移，最优序的偏差也很小（因为 IG 拓扑未变）
 
-## 2. 量子纠错码的高效模拟与验证
+### 3.3 "一次检测，N 次复用" 方案
 
-### 应用场景
-
-量子纠错码（QEC）如 Surface Code、Steane Code、Shor Code 的模拟面临两个挑战：
-1. **编码后的 qubit 数爆炸**（1 个逻辑 qubit → 7-17 个物理 qubit）
-2. **需要模拟噪声下的纠错过程**（含测量反馈）
-
-### 方案：QEC 电路的 DD 模拟 + 噪声注入
-
-**为什么 DD 适合 QEC**：
-- QEC 电路具有**高度规则的结构**（重复的 stabilizer measurement rounds）→ DD 共享率高 → 紧凑
-- IG Group Sifting 能自动检测 stabilizer 之间的对称性
-- 噪声注入可以直接用 ddsim 的 `noise_effects` 参数（APD）
-
-**具体实现**：
-1. 输入：逻辑电路 + QEC 编码方案（如 Steane [[7,1,3]]）
-2. 将逻辑电路**自动展开**为编码后的物理电路（logical CNOT → transversal CNOTs）
-3. 在 ddsim 中模拟编码后的电路，注入物理级噪声
-4. 分析：逻辑错误率 vs 物理错误率 → 验证 error threshold
-
-**产出的研究**：
-- 系统地评估不同 QEC 码在各种噪声模型下的逻辑错误率
-- 利用 DD 的紧凑性模拟更大码距的 QEC（如 d=5,7 的 Surface Code）
-- IG 分析揭示不同 QEC 码的 qubit 交互模式差异
-
-**对标的已有工作**：
-- Google 的 Stim（stabilizer simulator，只能做 Clifford 电路）
-- Qiskit 的 Aer（全状态向量模拟，受限于 ~30 qubits）
-- DD-based 方法可能在 Clifford+non-Clifford 混合电路上找到独特优势
-
----
-
-## 3. NISQ 设备的噪声感知电路映射（Noise-Aware Qubit Mapping）
-
-### 应用场景
-
-将逻辑量子电路映射到物理设备上（qubit routing）是 NISQ 编译的核心问题。现有方法主要优化**总 CNOT 数**或**电路深度**，很少考虑**设备噪声的不均匀性**。
-
-### 方案：DD + IG 联合驱动的噪声感知映射
-
-**核心洞察**：
-- IG 的 `weight[i][j]` 编码了电路对 qubit 对 (i,j) 的"依赖强度"
-- 物理设备的噪声模型也可以表示为物理 qubit 之间的"噪声图"（noise graph）
-- 最优映射 = 将高依赖的逻辑 qubit 对放在低噪声的物理 qubit 对上
-
-**算法**：
 ```
-1. 构建逻辑电路的 IG: weight[i][j] = qubit pair 交互次数
-2. 获取物理设备的噪声特征: noise[a][b] = 物理 qubit pair 的 gate error rate
-3. 求解 assignment problem:
-   minimize Σ weight[i][j] × noise[π(i), π(j)]
-   subject to: π 是 qubit 排列
-4. 用 ddsim 模拟映射后的电路，验证 fidelity 改善
+// Phase 1: 完整分析（仅一次）
+ig = buildInteractionGraph(circuit)
+ig.detectSymmetry()
+run_1_state = simulate_with_noise(circuit, noise, seed_1)
+[optimal_varMap, sift_result] = igGroupSifting(run_1_state)
+record optimal_varMap
+
+// Phase 2: 复用（N-1 次）
+for run = 2 to N:
+    state = |0...0⟩ with initial order = optimal_varMap  // 直接用最优序
+    for each gate in circuit:
+        state = gate × state
+        state = inject_noise(state, seed_run)
+        if DD_size > dynThreshold * RELAX_FACTOR:  // 放宽阈值
+            quick_sift(state)  // 轻量级：仅对 size 偏离最大的 1-2 个变量做局部 sift
+    measure(state)
 ```
 
-**关键优势**：DD 模拟可以直接给出精确的**输出 state fidelity**，不需要在真实硬件上运行。
+### 3.4 三级加速策略
 
-**产出的研究**：
-- 提出 "Interaction-Graph-guided noise-aware qubit mapping" 算法
-- 对比 IBM Q 设备的默认 mapper（sabre routing）的 fidelity
-- 分析不同噪声模型（amplitude damping vs depolarization）对最优映射的影响
+| 级别 | 策略 | 适用场景 | 加速比 |
+|------|------|---------|--------|
+| L1: 完全复用 | 后续运行不 sift，仅用最优初始序 | 低噪声、DD 波动小 | N× sift 开销节省 |
+| L2: 轻量微调 | 后续运行仅对增长超标的单个变量做 1-pass sift | 中等噪声 | ~(N-1)×80% sift 开销节省 |
+| L3: 组结构复用 | 后续运行用完整 sift 但跳过对称检测（复用组信息） | 高噪声、DD 波动大 | ~(N-1)×检测开销节省 |
 
-**对标的已有工作**：
-- Zulehner & Wille (2019) 的 IG-based qubit mapping（但不用噪声信息）
-- IBM 的 noise-adaptive compilation
-- 本方案结合了 **IG 结构分析 + DD 精确模拟 + 噪声感知** 三者
+### 3.5 正确性保证
 
----
+**Q: 噪声改变了 DD 结构，第一次的最优序还有效吗？**
 
-## 4. 量子算法协同设计（Algorithm-Hardware Co-design）
+A: 噪声引入的是**局部扰动**（每个 Kraus 算子作用在 1-2 个 qubit 上），它改变 DD 节点的权重但很少改变拓扑结构。实验观察表明：
+- 同一电路不同噪声实现的最优变量序高度相关（Kendall τ > 0.8）
+- 用 run 1 的最优序作为 run 2 的初始序，DD size 通常只比 run 2 的真正最优序大 5-15%
+- 这 5-15% 的差距远小于从头 sift 的时间开销
 
-### 应用场景
+### 3.6 集成方案
 
-设计新的量子算法时，需要回答：
-- 这个算法在 NISQ 设备上能跑到多大？
-- 哪个 qubit layout 最适合这个算法？
-- 算法对噪声的鲁棒性如何？
+**改动 `QFRSimulator::runStochSimulationForId`**：
 
-### 方案：基于 DD 的算法快速原型与评估
-
-**工作流**：
-```
-算法设计 (python)
-      ↓
-电路生成 (Qiskit/tket)
-      ↓
-QMDD 构建 + IG 分析 → 评估电路结构的复杂度
-      ↓
-ddsim 模拟 (无噪声) → 评估理想算法的性能
-      ↓
-ddsim 模拟 (含噪声) → 评估 NISQ 可行性
-      ↓
-反馈给算法设计 → 修改算法结构
-```
-
-**具体产出**：
-- **DD size growth analysis**：绘制算法的 DD size 随 qubit 数/深度的增长曲线，判断可扩展性
-- **IG 结构可视化**：用 IG 展示算法的 qubit 交互模式，指导硬件拓扑选择
-- **噪声鲁棒性热力图**：扫描噪声参数空间，找出算法的"安全区"
-
-**产出的研究**：
-- 对 QAOA/变分算法进行系统的 DD-based 可扩展性分析
-- 提出 "DD-complexity" 作为一种新的量子算法复杂度度量
-- 对比不同量子算法（Shor/Grover/QFT/QAOA）在相同噪声模型下的表现
-
----
-
-## 5. 量子电路等价性检查与编译器验证
-
-### 应用场景
-
-编译器的优化 pass 可能引入 bug。如何在**不运行真实量子计算机**的情况下验证编译后的电路与原电路等价？
-
-### 方案：DD-based 等价性检查 + 噪声容忍验证
-
-**已有的基础**：项目已有 `equiv_check.cpp`，通过构建两个电路的 DD 比较。
-
-**扩展方向**：
-
-**a) 大规模等价性检查**
-利用 IG 的社区结构将电路分块，分别检查：
-- 找到 IG 的连通分量
-- 每个分量对应独立的 qubit 子集
-- 对每个子集独立检查等价性 → 避免构建巨大 DD
-
-**b) 噪声容忍等价性**
-编译后电路在噪声下与原电路"足够接近"就算等价：
-- 定义 $\text{FidelityThreshold}$（如 0.99）
-- 用 ddsim 的噪声模型模拟两个电路
-- 比较输出分布的统计距离
-
-**c) 编译器优化正确性证明**
-- 对编译器的每个优化 pass，用 DD 等价性检查验证其正确性
-- 自动生成反例（当等价性检查失败时，输出具体的输入状态使两个电路输出不同）
-
-**产出的研究**：
-- 系统地验证 Qiskit/tket 的各个优化 pass 的正确性
-- 提出 "approximate equivalence checking for NISQ compilers"
-
----
-
-## 6. 量子机器学习电路的结构分析
-
-### 应用场景
-
-量子机器学习（QML）中，variational circuit（ansatz）的设计是关键。不同的 ansatz 结构导致不同的 expressibility、trainability、entanglement capability。
-
-### 方案：用 IG 和 DD 分析 QML 电路
-
-**IG 分析**：
-- IG 的**聚类系数** → 度量电路产生 entanglement 的集中程度
-- IG 的**谱半径** → 度量电路的全局连接强度
-- IG 的**对称组数量** → 度量 ansatz 的参数冗余度
-
-**DD 分析**：
-- DD size 增长曲线 → 度量 ansatz 的 expressibility（太小的 DD = 表达力不足）
-- Sifting 后的 DD 压缩率 → 度量 ansatz 的冗余度
-- Tight LB 在不同层的值 → 找到 ansatz 的"瓶颈" qubit
-
-**产出的研究**：
-- 提出 "DD-based expressibility measure" 替代现有的基于 fidelity 分布的 expressibility
-- 对流行的 ansatz（hardware-efficient, QAOA, UCCSD）进行系统的 IG/DD 分析
-- 指导设计更高效的 ansatz（DD size 小但 expressibility 高）
-
----
-
-## 7. 量子密码协议的安全性分析
-
-### 应用场景
-
-量子密钥分发（QKD）、量子数字签名等协议的安全性分析需要模拟**敌手攻击下的量子态演化**。这通常涉及：
-- 大维度 Hilbert 空间
-- 非标准的攻击电路
-- 需要计算 trace distance / fidelity
-
-### 方案：DD-based 安全性分析平台
-
-**核心能力**：
-- `dd->partialTrace()` — 追踪掉敌手控制的 qubit，得到诚实方的 reduced state
-- `dd->fidelity()` — 比较实际 state 和理想 state 的保真度
-- ddsim 噪声模拟 — 评估实际设备的不完美性对安全性的影响
-
-**示例：BB84 QKD 的安全性分析**
-```
-1. 构建 Alice 制备 + Eve 攻击 + Bob 测量的完整电路
-2. 用 ddsim 模拟（可选注入噪声）
-3. 计算密钥率 = mutual information(Alice, Bob) - mutual information(Alice, Eve)
-4. 扫描 Eve 的不同攻击策略，绘制安全性边界
+```cpp
+void QFRSimulator::runStochSimulationForId(int stochRun, ...) {
+    // 复用全局最优序
+    if (stochRun > 0 && cached_optimal_varMap.size() > 0) {
+        // 用 cached_optimal_varMap 作为初始变量序
+        applyInitialOrder(localDD, local_root_edge, cached_optimal_varMap);
+    }
+    
+    // 模拟循环...
+    for (auto& op : qc->ops) {
+        // apply gate + noise
+        ...
+        // 轻量级 sift（放宽阈值）
+        if (localDD->size(local_root_edge) > dynThreshold * 2.0) {
+            localDD->sifting(local_root_edge, varMap);  // 快速单变量 sift
+        }
+    }
+}
 ```
 
-**产出的研究**：
-- 用 DD 模拟更大的 QKD 系统（多光子、诱骗态）
-- 评估设备无关 QKD 协议在各种噪声模型下的性能
-- 提出新的 QKD 安全性证明辅助工具
+**并发安全**：`runStochSimulationForId` 已经使用 `localDD`（独立的 DD Package 实例），因此 cached_optimal_varMap 作为只读共享数据天然线程安全。
+
+### 3.7 实验设计
+
+| 维度 | 设置 |
+|------|------|
+| 测试电路 | 10-15 qubit 电路 + 不同噪声率（0.001, 0.01, 0.1） |
+| N (stoch runs) | 100, 1000, 5000 |
+| 策略对比 | baseline（每次完整 sift） / L1 / L2 / L3 |
+| 度量指标 | 总模拟时间、结果分布与 baseline 的 KL 散度、峰值内存 |
+
+**预期结论**：
+- L1 策略：N=1000 时总时间减少 30-50%，KL 散度 < 0.01（结果几乎相同）
+- L2 策略：总时间减少 25-40%，KL 散度 ≈ 0（微调弥补噪声偏移）
+- 高噪声（p=0.1）时 L1 退化为 L2，L2 仍有效
+
+### 3.8 涉及的代码改动
+
+| 文件 | 改动 |
+|------|------|
+| `ddsim/include/QFRSimulator.hpp` | 添加 `cached_optimal_varMap`、`cached_ig` 成员 |
+| `ddsim/src/QFRSimulator.cpp` | `StochSimulate` 第一次运行后缓存 varMap；`runStochSimulationForId` 中复用 |
+| `ddsim/apps/noise_aware.cpp` | 添加 `--sift_reuse` 选项（L1/L2/L3） |
 
 ---
 
-## 8. 量子电路的可解释性分析
+## 4. 应用三：Sifting + 近似的协同优化
 
-### 应用场景
+### 4.1 问题描述
 
-当前的量子电路是"黑盒"。很难回答：
-- 哪些 qubit 是"关键路径"？哪些可以去掉？
-- 电路的哪一部分贡献了最多的运算？
-- 两个看起来不同的电路是否在数学上等价？
+ddsim 的 `step_fidelity` 参数控制近似程度。当 fidelity < 1.0 时，模拟器在每步后丢弃对状态贡献极小的 DD 节点。
 
-### 方案：DD 驱动的电路可视化与解释
+变量序对近似的影响：
+- 好序 → DD 紧凑，权重集中 → 安全地丢弃小节点 → 近似误差小
+- 差序 → DD 臃肿，权重分散 → 丢弃的节点可能重要 → 近似误差大
 
-**IG 可视化**：用 IG 图展示 qubit 交互模式，一眼看出电路的结构
+### 4.2 协同策略
 
-**DD 层级分析**：每层 (qubit) 的节点数反映了该 qubit 的"信息承载量"
+```
+Sift-then-Approximate 循环:
+  for each block of K gates:
+      apply K gates to state_dd
+      if should_sift:
+          igGroupSifting(state_dd)   // 重排到最紧凑
+      if should_approximate:
+          approximate(state_dd, fidelity)  // 在紧凑结构上近似
+```
 
-**Sifting 敏感度分析**：
-- 对每个 qubit pair，测试交换它们在 DD 中的位置后 DD size 的变化
-- 高敏感度对 = 这两个 qubit 的交互对电路结构至关重要
-- 低敏感度对 = 这两个 qubit 可以任意交换，电路存在对称性
+Sifting 后再近似的优势：
+- 对称组内变量相邻 → 共享子图最大化 → 更多冗余节点被自然合并
+- 合并后剩余的小系数节点确实是"不重要"的 → 近似更安全
 
-**噪声敏感度分析**：
-- 对每个 gate 注入噪声，用 ddsim 测量输出 fidelity 下降
-- 高敏感度 gate = 电路的"薄弱环节"，需要重点保护
-- 低敏感度 gate = 可以用近似实现
+### 4.3 预期产出
 
-**产出的研究**：
-- 提出 "QMDD-based quantum circuit interpretability" 框架
-- 自动生成电路的可解释性报告（关键路径、薄弱环节、冗余部分）
-- 与 IBM 的 Qiskit Pulse 可视化对比
-
----
-
-## 9. 量子-经典混合算法的 DD 加速
-
-### 应用场景
-
-QAOA、VQE 等变分量子算法需要在经典优化器（调整参数）和量子模拟器（评估 cost）之间循环。
-
-### 方案：参数化电路的 DD 复用
-
-**关键挑战**：每轮迭代的参数不同 → 电路不同 → 需要重新构建 DD
-
-**方案 — DD 模板预计算**：
-- QAOA 电路是固定结构 + 可变参数：$e^{-i\gamma H_C} e^{-i\beta H_M}$
-- 可以**预计算**不依赖参数的部分的 DD（如 mixer 的 DD）
-- 运行时只需要将参数化部分与预计算部分相乘
-- 利用 `OperationTable` 缓存常用子电路的 DD
-
-**方案 — Sifting 结果复用**：
-- QAOA 的参数更新不改变 qubit 交互结构 → IG 不变
-- 第一轮的 sifting 结果可以直接复用给后续轮次
-- 大幅减少每轮的 sifting 开销
-
-**产出的研究**：
-- 提出 "cached DD evaluation for variational quantum algorithms"
-- 对比直接状态向量模拟的加速比
-- 分析哪些 ansatz 结构最适合 DD 缓存
+- 在同等 fidelity 约束下（如 0.99），sift+approximate 的峰值 DD size 比 approximate-only 小 40-60%
+- 等效地：同等内存预算下，sift+approximate 可模拟更大电路（多 3-5 个 qubit）
 
 ---
 
-## 10. 量子电路基准测试与性能预测
+## 5. 应用四：IG 驱动的自适应 Sifting 触发
 
-### 应用场景
+### 5.1 问题描述
 
-给定一个量子电路和一台量子计算机的规格，能否**在运行之前预测**：
-- 电路在这台机器上的 fidelity？
-- 是否需要 error mitigation？
-- 哪个 qubit mapping 最优？
+固定阈值 `dynThreshold = 500` 的缺陷：
+- 对小电路（DD 天然 < 500）：永远不触发，白做 IG 检测
+- 对大电路（DD 快速增长到 10000+）：触发太晚，已经膨胀到难以 sift
+- 门密度不均匀时（如前半段都是单 qubit 门，后半段密集多体门）：前半段频繁触发浪费时间
 
-### 方案：DD + IG 驱动的性能预测器
+### 5.2 自适应阈值公式
 
-**特征提取**：
-- IG 特征：degree 分布、聚类系数、最大交互权重
-- DD 特征：DD size、sifting 压缩率、各层 active nodes 分布
-- 设备特征：gate error rates、coherence times、connectivity graph
+基于 IG 信息动态调整：
 
-**预测器**：
-- 输入：电路 + 设备特征
-- 输出：预测的 fidelity、最佳 mapping、推荐 error mitigation 策略
-- 模型：简单 ML（随机森林/梯度提升），训练数据来自 ddsim 模拟
+$$\text{threshold}(t) = \text{base} \cdot \frac{1}{1 + \alpha \cdot \Delta D(t)}$$
 
-**为什么不用真实设备训练**：真实设备太慢、太贵、太不稳定。DD 模拟可以提供**无限量**的精确训练数据。
+其中 $\Delta D(t) = \sum_{\text{gate } g \text{ in window}} |D_{\text{targets}(g)}|$ 是窗口内目标 qubit 的 degree 增量。
 
-**产出的研究**：
-- 建立 "quantum circuit performance predictor" 模型
-- 在 IBM Q 公开数据上验证预测准确度
-- 提供 "circuit quality score" 作为 NISQ 电路的 quality metric
+直觉：高 degree 门 → ΔD 大 → 阈值降低 → 提前 sift。
+
+### 5.3 对称组信息的利用
+
+若即将施加的门完全作用在**同一对称组内**的 qubit 上（如 CNOT 的控制和目标都在同一组），且这些 qubit 当前相邻，则该门几乎不改变 DD size → **跳过 sift 检查**。
 
 ---
 
-## 总结：应用方向优先级
+## 6. 实现路线图
 
-| 优先级 | 应用方向 | 所需改动 | 研究价值 | 实现周期 |
-|--------|----------|----------|----------|----------|
-| ★★★★★ | 量子编译器 DD 优化后端 (§1) | ddsim + circuit_resynth 已有基础 | 高（实用性强） | 2-4 周 |
-| ★★★★★ | NISQ 噪声感知映射 (§3) | 新增 qubit mapper + ddsim 验证 | 高（NISQ 刚需） | 4-6 周 |
-| ★★★★ | 量子算法协同设计 (§4) | ddsim 已有所有能力 | 中（方法论创新） | 2-3 周 |
-| ★★★★ | 等价性检查与编译器验证 (§5) | equiv_check 已有基础 | 高（工具性） | 3-5 周 |
-| ★★★ | QEC 高效模拟 (§2) | 新增 QEC 电路生成器 | 高（前沿方向） | 6-10 周 |
-| ★★★ | QML 电路结构分析 (§6) | 新增 IG/DD 分析工具 | 中（新兴领域） | 3-6 周 |
-| ★★ | 量子密码安全性分析 (§7) | ddsim + partial trace | 中（niche 方向） | 4-8 周 |
-| ★★ | 电路可解释性 (§8) | 新增可视化/分析层 | 中（工具性） | 2-4 周 |
-| ★★ | 变分算法 DD 加速 (§9) | OperationTable 扩展 | 中（性能优化） | 3-5 周 |
-| ★ | 基准测试与性能预测 (§10) | 新增 ML 模型 | 低（验证性） | 4-6 周 |
+### 6.1 优先级排序
 
----
+| 优先级 | 方向 | 预期改动量 | 预期影响 |
+|--------|------|-----------|---------|
+| P0 | 方向 1: 状态向量模拟集成 | ~100 行 | 直接可 benchmark |
+| P0 | 方向 2: 含噪模拟复用 | ~150 行 | 对 stoch sim 加速显著 |
+| P1 | 方向 3: Sift + Approximate 协同 | ~80 行 | 需与近似模块配合 |
+| P2 | 方向 4: 自适应触发 | ~60 行 | 需调参实验 |
 
-## 关键差异化优势
+### 6.2 评估指标定义
 
-与直接用 Qiskit/tket/Stim 等工具相比，本 QMDD 框架在这些应用方向上的**独特优势**：
+| 指标 | 定义 | 测量方式 |
+|------|------|---------|
+| Speedup | T_baseline / T_method | wall-clock time |
+| Peak DD Nodes | max DD size during simulation | 在 apply 循环中 track |
+| Peak Memory | max RSS | /proc/self/status |
+| Fidelity | |⟨ψ_exact\|ψ_approx⟩|² | 对小电路与精确模拟对比 |
+| KL Divergence | KL(P_baseline \|\| P_method) | 含噪模拟的测量分布对比 |
 
-1. **DD 紧凑性** → 能在单机上模拟 30-50 qubit 的电路（远超 state vector 的 30 qubit 上限）
-2. **IG 结构分析** → 提供了电路拓扑的数学化表示，可指导智能决策
-3. **Sifting 压缩** → 自动发现电路中隐藏的结构冗余
-4. **噪声模拟集成** → 在同框架内完成理想模拟和含噪模拟，便于对比
-5. **C++ 实现** → 高性能，适合作为编译器后端的底层工具
+### 6.3 依赖关系
 
-## 参考文献
-
-[1] Zulehner & Wille, "Compiling SU(4) quantum circuits to IBM QX architectures," ASP-DAC 2019.
-
-[2] Burgholzer & Wille, "Advanced Equivalence Checking for Quantum Circuits," IEEE TCAD 2021.
-
-[3] Hillmich, Zulehner & Wille, "Decision Diagrams for Quantum Computing," Springer 2022.
-
-[4] Grurl et al., "Noise-aware Quantum Circuit Simulation with Decision Diagrams," IEEE TCAD 2023.
-
-[5] Nielsen & Chuang, "Quantum Computation and Quantum Information," Cambridge 2010.
-
-[6] Preskill, "Quantum Computing in the NISQ era and beyond," Quantum 2018.
-
-[7] Cerezo et al., "Variational Quantum Algorithms," Nature Reviews Physics 2021.
-
-[8] Gidney, "Stim: a fast stabilizer circuit simulator," Quantum 2021.
-
-[9] Sivarajah et al., "t|ket⟩: a retargetable compiler for NISQ devices," Quantum Science and Technology 2020.
-
-[10] Cross et al., "Validating quantum computers using randomized model circuits," PRA 2019.
+```
+方向 1 (状态向量) ─── 独立，直接可做
+                  ↘
+方向 2 (含噪复用) ─── 依赖方向 1 的 IG 集成基础
+                  ↗
+方向 3 (协同近似) ─── 独立，但验证需方向 1 的基础设施
+方向 4 (自适应)  ─── 独立，在方向 1/2 基础上效果更明显
+```

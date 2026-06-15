@@ -6,6 +6,7 @@
 
 #include "Simulator.hpp"
 #include "QuantumComputation.hpp"
+#include "InteractionGraph.h"
 
 class QFRSimulator : public Simulator {
 public:
@@ -23,8 +24,26 @@ public:
         }
     }
 
+    QFRSimulator(std::unique_ptr<qc::QuantumComputation> &qc, const unsigned int step_number, const double step_fidelity, const int initial_reorder, const int dynamic_reorder, const int post_reorder, unsigned int sift_threshold)
+            : qc(qc), step_number(step_number), step_fidelity(step_fidelity), initial_reorder(initial_reorder), dynamic_reorder(dynamic_reorder), post_reorder(post_reorder), dyn_sift_threshold(sift_threshold) {
+        if (step_number == 0) {
+            throw std::invalid_argument("step_number has to be greater than zero");
+        }
+    }
+
     QFRSimulator(std::unique_ptr<qc::QuantumComputation> &qc, const std::string& noise_effects, double noise_prob, long stoch_runs, const unsigned int step_number, const double step_fidelity, std::string recorded_propeteis, const int initial_reorder, const int dynamic_reorder, const int post_reorder)
             : qc(qc), step_number(step_number), step_fidelity(step_fidelity), initial_reorder(initial_reorder), dynamic_reorder(dynamic_reorder), post_reorder(post_reorder){
+        if (step_number == 0) {
+            throw std::invalid_argument("step_number has to be greater than zero");
+        }
+        setNoiseEffects((char*) noise_effects.data());
+        setRecordedProperties(recorded_propeteis);
+        setAmplitudeDampingProbability(noise_prob);
+        stochastic_runs = stoch_runs;
+    }
+
+    QFRSimulator(std::unique_ptr<qc::QuantumComputation> &qc, const std::string& noise_effects, double noise_prob, long stoch_runs, const unsigned int step_number, const double step_fidelity, std::string recorded_propeteis, const int initial_reorder, const int dynamic_reorder, const int post_reorder, unsigned int sift_threshold)
+            : qc(qc), step_number(step_number), step_fidelity(step_fidelity), initial_reorder(initial_reorder), dynamic_reorder(dynamic_reorder), post_reorder(post_reorder), dyn_sift_threshold(sift_threshold) {
         if (step_number == 0) {
             throw std::invalid_argument("step_number has to be greater than zero");
         }
@@ -57,6 +76,7 @@ public:
                 {"post_reorder",               std::to_string(post_reorder)},
                 {"sifting_min",                std::to_string(sifting_min)},
                 {"sifting_max",                std::to_string(sifting_max)},
+                {"sift_threshold",             std::to_string(dyn_sift_threshold)},
                 {"step_fidelity",              std::to_string(step_fidelity)},
                 {"approximation_runs",         std::to_string(approximation_runs)},
                 {"final_fidelity",             std::to_string(final_fidelity)},
@@ -79,11 +99,20 @@ private:
     const int initial_reorder;
     const int dynamic_reorder;
     const int post_reorder;
+    unsigned int dyn_sift_threshold{1000};  // DD size threshold for triggering dynamic sifting
     unsigned int reorder_count{};
     unsigned int sifting_min{};
     unsigned int sifting_max{};
     qc::permutationMap variable_map_postsim;
     qc::permutationMap variable_map_postrestore;
+
+    // IG Group Sifting support
+    dd::InteractionGraph ig;
+    bool ig_initialized{false};
+    qc::permutationMap cached_optimal_varMap;
+    bool has_cached_varMap{false};
+
+    void buildInteractionGraph();
 
     qc::permutationMap do_initial_reorder(bool use_controls);
 
