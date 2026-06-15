@@ -417,78 +417,137 @@ $$
 
 ### 5.1 算法概述
 
-Group Sifting 分为两个核心阶段：
+本实现基于经典 BDD Group Sifting 算法（Panda & Somenzi, 1995），核心思想为：**将对称变量组作为一个整体单元在所有位置上 sift**，而非仅 sift 代表后放置成员。
 
-**阶段 1 — 代表 Sifting**：对每个对称组，仅对**代表变量**（组内 degree 最高者）执行完整 sifting，找到其最优位置 $p^*$。其余组成员在代表 sifting 期间被标记为"已放置（placed）"，跳过它们的独立 sifting。
+算法分为三个核心阶段：
 
-**阶段 2 — 组内聚合（Group Placement）**：代表找到 $p^*$ 后，将组内其他成员**试探性**移动到 $p^*$ 的相邻位置（$p^* \pm 1$），仅在 DD size 改善时提交移动。
+**阶段 1 — 组聚合（Gather）**：将对称组的所有成员通过相邻交换移动到连续位置，形成一个"超级变量"块。
 
-### 5.2 Group Placement 的保守策略
+**阶段 2 — 组整体 Sift（Group Sift as Block）**：将整个块作为一个单元遍历所有可能位置。每次移动时，块中所有成员依次与外部层交换，保持组内相对顺序不变。
 
-Group Placement 采用**保守策略**：对每个成员试探两个候选位置，仅在严格改善时提交。这避免了盲目移动导致 DD 膨胀：
+**阶段 3 — 组内排列优化（Internal Order Optimization）**：在最佳位置处，通过 bubble-sort 风格的相邻交换尝试改善组内变量排列。
+
+### 5.2 关键操作定义
+
+**MoveGroupDown**：将占据位置 $[\ell_{\text{lo}}, \ell_{\text{hi}}]$ 的组整体下移一步至 $[\ell_{\text{lo}}{-}1, \ell_{\text{hi}}{-}1]$。实现方式为从底部成员开始，逐一与下方层交换：
 
 $$
-\text{target}(q_m) = \begin{cases}
-p^* + 1 & \text{if } S_{p^*+1} < S_{p^*-1} \wedge S_{p^*+1} < S_{\text{current}} \\
-p^* - 1 & \text{if } S_{p^*-1} \leq S_{p^*+1} \wedge S_{p^*-1} < S_{\text{current}} \\
-\text{stay} & \text{otherwise}
-\end{cases}
+\textsc{MoveGroupDown}(\ell_{\text{lo}}, \ell_{\text{hi}}): \quad \textbf{for } p = \ell_{\text{lo}} \textbf{ to } \ell_{\text{hi}}: \; \textsc{Exchange}(p, p{-}1)
 $$
 
-其中 $S_x$ 表示将成员移动到位置 $x$ 后的 DD size。
+**MoveGroupUp**：将组整体上移一步至 $[\ell_{\text{lo}}{+}1, \ell_{\text{hi}}{+}1]$。从顶部成员开始，逐一与上方层交换：
 
-### 5.3 完整 Group Sifting 伪代码
+$$
+\textsc{MoveGroupUp}(\ell_{\text{lo}}, \ell_{\text{hi}}): \quad \textbf{for } p = \ell_{\text{hi}} \textbf{ downto } \ell_{\text{lo}}: \; \textsc{Exchange}(p{+}1, p)
+$$
+
+**复杂度**：每次组移动需 $|G_k|$ 次相邻交换（$|G_k|$ 为组大小），组遍历全部 $n - |G_k|$ 个位置的总交换次数为 $O(|G_k| \cdot n)$。
+
+### 5.3 组聚合（Gather）子过程
 
 $$
 \boxed{
 \begin{aligned}
-&\textbf{Algorithm 3: Group Sifting} \\
+&\textbf{Procedure } \textsc{GatherGroup}(G_k, e, \sigma) \\
+&\quad \text{// 按当前位置排序组成员} \\
+&\quad \text{members} \leftarrow \text{sort } G_k \text{ by } \sigma(q) \text{ ascending} \\
+&\quad \textbf{for } i = 1 \textbf{ to } |G_k|{-}1 \textbf{ do} \\
+&\qquad \text{target} \leftarrow \sigma(\text{members}[i{-}1]) + 1 \\
+&\qquad \text{cur} \leftarrow \sigma(\text{members}[i]) \\
+&\qquad \textbf{while } \text{cur} > \text{target}: \; \textsc{Exchange}(\text{cur}, \text{cur}{-}1); \; \text{cur} \leftarrow \text{cur} - 1 \\
+&\qquad \textbf{while } \text{cur} < \text{target}: \; \textsc{Exchange}(\text{cur}{+}1, \text{cur}); \; \text{cur} \leftarrow \text{cur} + 1 \\
+&\quad \text{// 此时组成员占据连续位置 } [\ell_{\text{lo}}, \ell_{\text{hi}}]
+\end{aligned}
+}
+$$
+
+### 5.4 组内排列优化
+
+在最佳位置处，采用多轮 bubble-sort 交换寻找更优内部排列：
+
+$$
+\boxed{
+\begin{aligned}
+&\textbf{Procedure } \textsc{OptimizeInternalOrder}(G_k, [\ell_{\text{lo}}, \ell_{\text{hi}}], e, \sigma) \\
+&\quad \text{improved} \leftarrow \textbf{true}, \;\; \text{passes} \leftarrow 0 \\
+&\quad \textbf{while } \text{improved} \wedge \text{passes} < |G_k| \textbf{ do} \\
+&\qquad \text{improved} \leftarrow \textbf{false}, \;\; \text{passes} \leftarrow \text{passes} + 1 \\
+&\qquad \textbf{for } p = \ell_{\text{lo}} \textbf{ to } \ell_{\text{hi}}{-}1 \textbf{ do} \\
+&\qquad\quad S_{\text{before}} \leftarrow |e| \\
+&\qquad\quad \textsc{Exchange}(p{+}1, p) \\
+&\qquad\quad \textbf{if } |e| < S_{\text{before}} \textbf{ then } \text{improved} \leftarrow \textbf{true} \\
+&\qquad\quad \textbf{else } \textsc{Exchange}(p{+}1, p) \quad \text{// 撤销，恢复原序}
+\end{aligned}
+}
+$$
+
+### 5.5 完整 Group Sifting 伪代码
+
+$$
+\boxed{
+\begin{aligned}
+&\textbf{Algorithm 3: Classic Group Sifting} \\
 &\textbf{Input: } \text{DD } e, \text{ variable map } \sigma, \text{ IG } G \\
 &\textbf{Output: } \text{optimized } (e, \sigma) \\[4pt]
 &\mathcal{G} \leftarrow \textsc{DetectSymmetry}(G) \\
-&n \leftarrow \text{levels}(e), \;\; \text{free}[\cdot] \leftarrow \textbf{true}, \;\; \text{placed}[\cdot] \leftarrow \textbf{false} \\[4pt]
-&\textbf{for } \text{iter} = 0 \textbf{ to } n{-}1 \textbf{ do} \\
-&\quad \text{// Variable selection: most active, skip placed members} \\
-&\quad v^* \leftarrow \arg\max_{v:\, \text{free}[\sigma(v)] \wedge \neg\text{placed}[v]} \text{active}[\sigma(v)] \\
-&\quad \textbf{if } v^* = \text{null} \textbf{ then break} \\
-&\quad \text{free}[\sigma(v^*)] \leftarrow \textbf{false} \\[4pt]
-&\quad \text{// Phase 1: Full sifting for this variable} \\
-&\quad p^* \leftarrow \textsc{SiftFull}(v^*, e, \sigma) \\[4pt]
-&\quad \text{// Phase 2: Group Placement} \\
-&\quad \textbf{if } v^* \in G_k \in \mathcal{G} \textbf{ then} \\
-&\qquad \textbf{for each } q_m \in G_k \setminus \{v^*\}, \;\neg\text{placed}[q_m] \textbf{ do} \\
-&\qquad\quad \textsc{PlaceAdjacent}(q_m, p^*, e, \sigma) \\
-&\qquad\quad \text{placed}[q_m] \leftarrow \textbf{true}, \;\; \text{free}[\sigma(q_m)] \leftarrow \textbf{false} \\
-&\qquad \text{placed}[v^*] \leftarrow \textbf{true} \\[4pt]
+&n \leftarrow \text{levels}(e) \\
+&\text{units} \leftarrow \mathcal{G} \cup \{\{q\} : q \text{ is singleton}\} \\
+&\text{Sort units by } \max_{q \in U} \text{active}[\sigma(q)] \text{ descending} \\[4pt]
+&\textbf{for each } U \in \text{units} \textbf{ do} \\
+&\quad \textbf{if } |U| = 1 \textbf{ then} \\
+&\qquad \text{// Standard singleton sift (same as Rudell's algorithm)} \\
+&\qquad p^* \leftarrow \textsc{SiftFull}(U[0], e, \sigma) \\
+&\quad \textbf{else} \\
+&\qquad \text{// Step 1: Gather group into contiguous block} \\
+&\qquad \textsc{GatherGroup}(U, e, \sigma) \\
+&\qquad [\ell_{\text{lo}}, \ell_{\text{hi}}] \leftarrow \text{current extent of } U \\[4pt]
+&\qquad \text{// Step 2: Sift group as block through all positions} \\
+&\qquad \text{bestLo} \leftarrow \ell_{\text{lo}}, \;\; \text{bestSize} \leftarrow |e| \\
+&\qquad \text{// Direction: if group in lower half, sift down first} \\
+&\qquad \textbf{if } \ell_{\text{lo}} < (n - |U|) / 2 \textbf{ then} \\
+&\qquad\quad \text{// Sift down} \\
+&\qquad\quad \textbf{while } \ell_{\text{lo}} > 0 \textbf{ do} \\
+&\qquad\qquad \textsc{MoveGroupDown}(\ell_{\text{lo}}, \ell_{\text{hi}}); \;\; \ell_{\text{lo}} \mathrel{{-}{=}} 1; \; \ell_{\text{hi}} \mathrel{{-}{=}} 1 \\
+&\qquad\qquad \textbf{if } |e| < \text{bestSize}: \; \text{bestSize} \leftarrow |e|, \; \text{bestLo} \leftarrow \ell_{\text{lo}} \\
+&\qquad\quad \text{// Sift up} \\
+&\qquad\quad \textbf{while } \ell_{\text{hi}} < n{-}1 \textbf{ do} \\
+&\qquad\qquad \textsc{MoveGroupUp}(\ell_{\text{lo}}, \ell_{\text{hi}}); \;\; \ell_{\text{lo}} \mathrel{{+}{=}} 1; \; \ell_{\text{hi}} \mathrel{{+}{=}} 1 \\
+&\qquad\qquad \textbf{if } |e| < \text{bestSize}: \; \text{bestSize} \leftarrow |e|, \; \text{bestLo} \leftarrow \ell_{\text{lo}} \\
+&\qquad \textbf{else} \; \text{(symmetric: sift up first, then down)} \\[4pt]
+&\qquad \text{// Move group back to optimal position} \\
+&\qquad \textbf{while } \ell_{\text{lo}} < \text{bestLo}: \; \textsc{MoveGroupUp}; \; \ell_{\text{lo}} \mathrel{{+}{=}} 1; \; \ell_{\text{hi}} \mathrel{{+}{=}} 1 \\
+&\qquad \textbf{while } \ell_{\text{lo}} > \text{bestLo}: \; \textsc{MoveGroupDown}; \; \ell_{\text{lo}} \mathrel{{-}{=}} 1; \; \ell_{\text{hi}} \mathrel{{-}{=}} 1 \\[4pt]
+&\qquad \text{// Step 3: Optimize internal order at best position} \\
+&\qquad \textsc{OptimizeInternalOrder}(U, [\ell_{\text{lo}}, \ell_{\text{hi}}], e, \sigma) \\[4pt]
+&\quad \text{// Post-unit cleanup: clear compute table, renormalize} \\
+&\quad \textsc{Cleanup}(e) \\[4pt]
 &\textbf{return } (e, \sigma)
 \end{aligned}
 }
 $$
 
-### 5.4 PlaceAdjacent 子过程
+### 5.6 与经典 BDD Group Sifting 的对应关系
 
-$$
-\boxed{
-\begin{aligned}
-&\textbf{Procedure } \textsc{PlaceAdjacent}(q_m, p^*, e, \sigma) \\
-&\quad \text{curPos} \leftarrow \sigma(q_m), \;\; S_0 \leftarrow |e| \\
-&\quad \text{best} \leftarrow \text{curPos}, \;\; \text{bestSize} \leftarrow S_0 \\[4pt]
-&\quad \text{// Probe position } p^*{+}1 \\
-&\quad \textbf{if } p^*{+}1 \leq n{-}1 \textbf{ then} \\
-&\qquad \textsc{Move}(\text{curPos} \to p^*{+}1, e, \sigma) \\
-&\qquad \textbf{if } |e| < \text{bestSize}: \; \text{best} \leftarrow p^*{+}1, \; \text{bestSize} \leftarrow |e| \\
-&\qquad \textsc{Move}(p^*{+}1 \to \text{curPos}, e, \sigma) \;\; \text{// undo} \\[4pt]
-&\quad \text{// Probe position } p^*{-}1 \\
-&\quad \textbf{if } p^*{-}1 \geq 0 \textbf{ then} \\
-&\qquad \textsc{Move}(\text{curPos} \to p^*{-}1, e, \sigma) \\
-&\qquad \textbf{if } |e| < \text{bestSize}: \; \text{best} \leftarrow p^*{-}1, \; \text{bestSize} \leftarrow |e| \\
-&\qquad \textsc{Move}(p^*{-}1 \to \text{curPos}, e, \sigma) \;\; \text{// undo} \\[4pt]
-&\quad \text{// Commit only if strictly better} \\
-&\quad \textbf{if } \text{best} \neq \text{curPos} \wedge \text{bestSize} < S_0 \textbf{ then} \\
-&\qquad \textsc{Move}(\text{curPos} \to \text{best}, e, \sigma)
-\end{aligned}
-}
-$$
+| 经典 BDD Group Sifting (Panda & Somenzi) | 本实现 |
+|------------------------------------------|--------|
+| DD 结构对称检测（运行时验证） | IG profile 对称检测（静态预计算） |
+| 组作为超级变量整体移动 | `moveGroupDown`/`moveGroupUp` 保序移动 |
+| 在每个位置尝试组内所有排列 | bubble-sort 贪心排列优化（避免阶乘爆炸） |
+| 动态发现新对称关系并合并组 | 预先一次性检测，sift 过程中组固定 |
+
+### 5.7 复杂度分析
+
+设有 $g$ 个对称组，第 $k$ 组大小 $s_k$，单体数 $r = n - \sum_k s_k$，sift 单元总数 $u = g + r$。
+
+| 阶段 | 操作 | 交换次数 |
+|------|------|----------|
+| 聚合 | 每组移动成员至相邻 | $O(\sum_k s_k \cdot n)$ worst, $O(\sum_k s_k^2)$ typical |
+| 组整体 sift | 每组遍历 $n - s_k$ 位置 | $O(\sum_k s_k \cdot (n - s_k))$ |
+| 组内排列优化 | 每组 $\leq s_k$ 轮 bubble | $O(\sum_k s_k^2)$ |
+| 单体 sift | 标准 sifting | $O(r \cdot n)$ |
+| **总计** | | $O(u \cdot n \cdot \bar{s})$，$\bar{s}$ 为平均组大小 |
+
+**vs 标准 Sifting**：标准 sifting 为 $O(n^2)$。当存在大对称组时（$\sum s_k \gg g$），sift 单元数 $u \ll n$，且组整体移动的代价与单变量 sift 相当（只是每步多 $|G_k|$ 次交换），总搜索空间显著缩小。
 
 ---
 
@@ -496,19 +555,20 @@ $$
 
 ### 6.1 增强点
 
-IG Group Sifting 在 Group Sifting 基础上融合了两个 IG 增强：
+IG Group Sifting 在经典 Group Sifting 框架上融合三项 IG 增强：
 
-1. **IG 加权变量选择**：使用混合评分代替纯 active 节点数：
+1. **IG 度数排序**：sift 单元按组内最大 IG degree 降序处理（高交互度变量优先），代替按 active 节点数排序：
 
-$$\text{Score}(q) = \alpha \cdot \frac{\text{active}[\sigma(q)]}{\max \text{active}} + (1-\alpha) \cdot \frac{D(q)}{\max D}, \quad \alpha = 0.85$$
+$$\text{Priority}(U) = \max_{q \in U} D(q)$$
 
-2. **IG 方向引导**：基于引力模型决定先向上还是先向下 sift：
+2. **IG 方向引导**：基于引力模型决定组（或单体）先向上还是先向下 sift：
 
 $$g_\uparrow(q) = \sum_{j > \text{pos}(q)} w(q, \sigma^{-1}(j)), \quad g_\downarrow(q) = \sum_{j < \text{pos}(q)} w(q, \sigma^{-1}(j))$$
 
-$g_\downarrow > g_\uparrow$ → 先向下（下方有更多交互伙伴，优先探索更有可能找到好位置的方向）。
+- 对**单体**：直接用变量本身计算引力
+- 对**组**：取组内 degree 最高的成员（representative）的引力方向作为组的方向
 
-3. **LB 剪枝**：在每步交换前计算 Lower Bound，若 LB > 当前最优则提前终止该方向。
+3. **LB 剪枝（仅对单体）**：在每步交换前计算 Lower Bound，若 $\text{LB} > S_{\min}$ 则提前终止该方向。组整体 sift 不使用 LB 剪枝（因组移动涉及多层变化，单层 LB 不再适用）。
 
 ### 6.2 IG Group Sifting 伪代码
 
@@ -519,24 +579,61 @@ $$
 &\textbf{Input: } e, \sigma, G \\
 &\textbf{Output: } \text{optimized } (e, \sigma) \\[4pt]
 &\mathcal{G} \leftarrow \textsc{DetectSymmetry}(G) \\
-&n \leftarrow \text{levels}(e), \;\; \text{free}[\cdot] \leftarrow \textbf{true}, \;\; \text{placed}[\cdot] \leftarrow \textbf{false} \\[4pt]
-&\textbf{for iter} = 0 \textbf{ to } n{-}1 \textbf{ do} \\
-&\quad v^* \leftarrow \arg\max_{v:\text{free}[\sigma(v)] \wedge \neg\text{placed}[v]} \text{Score}(v) \\
-&\quad \textbf{if } v^* = \text{null} \textbf{ then break} \\
-&\quad \text{free}[\sigma(v^*)] \leftarrow \textbf{false} \\[4pt]
-&\quad \text{// IG direction decision} \\
-&\quad \text{upFirst} \leftarrow (g_\uparrow(v^*) > g_\downarrow(v^*)) \\
-&\quad \text{// Sifting with LB pruning} \\
-&\quad p^* \leftarrow \textsc{SiftWithLB}(v^*, e, \sigma, \text{upFirst}) \\[4pt]
-&\quad \text{// Group Placement (same as Algorithm 3)} \\
-&\quad \textbf{if } v^* \in G_k \textbf{ then} \\
-&\qquad \textbf{for } q_m \in G_k \setminus \{v^*\}, \neg\text{placed}[q_m] \textbf{ do} \\
-&\qquad\quad \textsc{PlaceAdjacent}(q_m, p^*, e, \sigma) \\
-&\qquad\quad \text{placed}[q_m] \leftarrow \textbf{true} \\
+&n \leftarrow \text{levels}(e) \\
+&\text{units} \leftarrow \mathcal{G} \cup \{\{q\} : q \text{ is singleton}\} \\
+&\text{Sort units by } \max_{q \in U} D(q) \text{ descending} \\[4pt]
+&\textbf{for each } U \in \text{units} \textbf{ do} \\
+&\quad \textbf{if } |U| = 1 \textbf{ then} \\
+&\qquad \text{// Singleton: IG direction + LB pruning} \\
+&\qquad q \leftarrow U[0], \;\; \text{pos} \leftarrow \sigma(q) \\
+&\qquad \text{upFirst} \leftarrow (g_\uparrow(q) > g_\downarrow(q)) \\
+&\qquad p^* \leftarrow \text{pos}, \;\; S_{\min} \leftarrow |e| \\[4pt]
+&\qquad \text{// First direction (with LB pruning)} \\
+&\qquad \textbf{if } \text{upFirst} \textbf{ then} \\
+&\qquad\quad \textbf{while } \text{pos} < n{-}1 \textbf{ do} \\
+&\qquad\qquad \textbf{if } \textsc{LB}_\uparrow(\sigma, \text{pos}) > S_{\min} \textbf{ then break} \\
+&\qquad\qquad \textsc{Exchange}(\text{pos}{+}1, \text{pos}); \; \text{pos} \leftarrow \text{pos} + 1 \\
+&\qquad\qquad \textbf{if } |e| < S_{\min}: S_{\min} \leftarrow |e|, \; p^* \leftarrow \text{pos} \\
+&\qquad \text{// Reverse direction (with LB pruning)} \\
+&\qquad\quad \textbf{while } \text{pos} > 0 \textbf{ do} \\
+&\qquad\qquad \textbf{if } \textsc{LB}_\downarrow(\sigma, \text{pos}) > S_{\min} \textbf{ then break} \\
+&\qquad\qquad \textsc{Exchange}(\text{pos}, \text{pos}{-}1); \; \text{pos} \leftarrow \text{pos} - 1 \\
+&\qquad\qquad \textbf{if } |e| < S_{\min}: S_{\min} \leftarrow |e|, \; p^* \leftarrow \text{pos} \\
+&\qquad \textbf{else} \; \text{(down first, symmetric)} \\
+&\qquad \text{// Move to optimal} \\
+&\qquad \textsc{Move}(\text{pos} \to p^*) \\[4pt]
+&\quad \textbf{else} \\
+&\qquad \text{// Group: gather + IG-directed block sift (same as Alg. 3)} \\
+&\qquad \textsc{GatherGroup}(U, e, \sigma) \\
+&\qquad [\ell_{\text{lo}}, \ell_{\text{hi}}] \leftarrow \text{extent of } U \\
+&\qquad \text{rep} \leftarrow \arg\max_{q \in U} D(q) \\
+&\qquad \text{upFirst} \leftarrow g_\uparrow(\text{rep}) > g_\downarrow(\text{rep}) \\
+&\qquad \text{bestLo} \leftarrow \ell_{\text{lo}}, \;\; S_{\min} \leftarrow |e| \\[4pt]
+&\qquad \textbf{if } \neg\text{upFirst} \textbf{ then} \\
+&\qquad\quad \textbf{while } \ell_{\text{lo}} > 0: \; \textsc{MoveGroupDown}; \; \text{update bestLo} \\
+&\qquad\quad \textbf{while } \ell_{\text{hi}} < n{-}1: \; \textsc{MoveGroupUp}; \; \text{update bestLo} \\
+&\qquad \textbf{else} \\
+&\qquad\quad \textbf{while } \ell_{\text{hi}} < n{-}1: \; \textsc{MoveGroupUp}; \; \text{update bestLo} \\
+&\qquad\quad \textbf{while } \ell_{\text{lo}} > 0: \; \textsc{MoveGroupDown}; \; \text{update bestLo} \\[4pt]
+&\qquad \text{// Move back to optimal + internal optimization} \\
+&\qquad \textsc{MoveToOptimal}(\ell_{\text{lo}} \to \text{bestLo}) \\
+&\qquad \textsc{OptimizeInternalOrder}(U, e, \sigma) \\[4pt]
+&\quad \textsc{Cleanup}(e) \\
+&\quad \text{Rebuild } \sigma^{-1} \\[4pt]
 &\textbf{return } (e, \sigma)
 \end{aligned}
 }
 $$
+
+### 6.3 两个变体的对比
+
+| 特性 | Group Sifting (Alg. 3) | IG Group Sifting (Alg. 4) |
+|------|----------------------|--------------------------|
+| 处理顺序 | 按 active 节点数降序 | 按 IG degree 降序 |
+| 方向决策 | 位置二分法（上半/下半） | IG 引力模型 |
+| 剪枝 | 无 | 单体使用 LB 剪枝 |
+| 组方向 | 同位置二分法 | 代表的 IG 引力方向 |
+| 适用场景 | 通用，无需完整 IG | 需完整 IG（完整电路构造后） |
 
 ---
 
@@ -586,22 +683,38 @@ $$
 
 | 电路 | qubits | Sifting | LB | IGLB | **Group** | **IGGroup** | TightLB |
 |------|--------|--------:|---:|-----:|----------:|------------:|--------:|
-| ham15_107 | 15 | 3238 | 1478 | 2390 | **2338** | **2258** | 2190 |
-| add6_196 | 13 | 53 | 203 | 95 | **57** | 95 | 328 |
-| cm85a_209 | 11 | 92 | 92 | 66 | **66** | **66** | 79 |
-| hwb7_62 | 7 | 155 | 155 | 155 | **155** | 155 | 155 |
-| rd53_130 | 7 | 67 | 67 | 67 | **67** | 67 | 65 |
-| con1_216 | 9 | 35 | 35 | 35 | **35** | 35 | 34 |
-| sqn_258 | 10 | 90 | 90 | 90 | **90** | 90 | 90 |
-| 4gt13_92 | 5 | 14 | 14 | 14 | **14** | 14 | 14 |
-| cm42a_207 | 11 | 54 | 55 | 54 | 56 | 58 | 55 |
+| ham15_107 | 15 | 3238 | 1478 | 2390 | **1334** | **2338** | 2190 |
+| add6_196 | 13 | 53 | 203 | 95 | **61** | **70** | 328 |
+| cm85a_209 | 11 | 92 | 92 | 66 | **62** | **66** | 79 |
+| hwb7_62 | 7 | 155 | 155 | 155 | **155** | **155** | 155 |
+| rd53_130 | 7 | 67 | 67 | 67 | **70** | **70** | 65 |
+| con1_216 | 9 | 35 | 35 | 35 | **35** | **35** | 34 |
+| sqn_258 | 10 | 90 | 90 | 90 | **90** | **90** | 90 |
+| 4gt13_92 | 5 | 14 | 14 | 14 | **14** | **14** | 14 |
+| cm42a_207 | 11 | 54 | 55 | 54 | **56** | **62** | 55 |
+
+### 8.2b 执行时间对比（秒）
+
+| 电路 | Sifting | LB | IGLB | **Group** | **IGGroup** | TightLB |
+|------|--------:|---:|-----:|----------:|------------:|--------:|
+| ham15_107 | 1.618 | 0.752 | 0.825 | **0.983** | **0.854** | 0.523 |
+| add6_196 | 0.830 | 0.523 | 0.536 | **0.632** | **0.589** | 0.426 |
+| cm85a_209 | 0.191 | 0.155 | 0.136 | **0.175** | **0.158** | 0.132 |
+| hwb7_62 | 0.066 | 0.062 | 0.066 | **0.063** | **0.063** | 0.107 |
+| rd53_130 | 0.043 | 0.040 | 0.040 | **0.038** | **0.044** | 0.039 |
+| con1_216 | 0.083 | 0.064 | 0.073 | **0.067** | **0.069** | 0.077 |
+| sqn_258 | 0.090 | 0.091 | 0.079 | **0.098** | **0.058** | 0.108 |
+| 4gt13_92 | 0.018 | 0.021 | 0.020 | **0.010** | **0.014** | 0.019 |
+| cm42a_207 | 0.234 | 0.231 | 0.188 | **0.154** | **0.195** | 0.217 |
 
 ### 8.3 关键结论
 
-1. **cm85a_209 Group = 66**：比 Sifting(92) 低 28%。该电路有多组对称 qubit
-2. **add6_196 Group = 57**：接近 Sifting(53)。无精确对称对，Group Sifting 退化为标准 Sifting（微差来自 varMap 追踪版本的交换行为差异）
-3. **ham15_107 IGGroup = 2258**：比 Sifting(3238) 低 30%。Hamming 码结构提供大量对称性
-4. **无退化保证**：保守的 Group Placement（仅严格改善时提交）确保没有电路出现显著恶化
+1. **ham15_107 Group = 1334**：比 Sifting(3238) 低 **59%**，比 LB(1478) 还低 10%。Hamming 码的大量对称 qubit 被成功聚合并整体 sift 到最优位置。时间 0.98s 比 Sifting(1.62s) 快 40%——搜索空间因组合并而减小
+2. **cm85a_209 Group = 62**：比 Sifting(92) 低 33%，时间基本持平(0.175s vs 0.191s)
+3. **cm42a_207 Group 时间 = 0.154s**：比所有其他策略都快（Sifting 0.234s, IGLB 0.188s），对称组减少了 sift 单元总数
+4. **rd53_130 Group = 70 > Sifting(67)**：该电路无有效对称组，聚合操作引入了微量退化（+4%）。这是经典 group sifting 的已知权衡
+5. **IGGroup vs Group**：IGGroup 在 ham15 上表现不如 Group（2338 vs 1334），原因是 LB 剪枝过早终止了有利方向的探索。但 IGGroup 在 sqn_258 上时间最优(0.058s)，LB 剪枝有效减少了无效交换
+6. **小电路（4gt13、con1、sqn）**：无对称结构时 Group Sifting 退化为标准 Sifting，DD size 相同，时间无显著差异
 
 ---
 
@@ -610,15 +723,18 @@ $$
 ### 9.1 当前局限
 
 1. **IG 对称 ⊂ DD 对称**：门参数差异可能破坏对称性（IG 只看拓扑不看参数）
-2. **Group Placement 搜索范围小**：仅试探 $p^* \pm 1$，更远距离的更优位置可能被错过
-3. **增量检测频率固定**：每次 sifting 触发时检测一次，频率由阈值控制
+2. **组内排列非最优**：bubble-sort 贪心只能找到局部最优内部排列，真正最优需 $O(|G_k|!)$ 枚举
+3. **组整体 sift 无 LB 剪枝**：组移动涉及多层变化，单层 LB 不适用，导致组 sift 无法提前终止
+4. **聚合开销**：初始聚合可能暂时增大 DD（成员被强制移到一起），虽然后续 sift 通常能恢复
+5. **增量检测频率固定**：每次 sifting 触发时检测一次，频率由阈值控制
 
 ### 9.2 未来方向
 
-1. **DD 级验证**：IG 检测后，实际交换验证 size 是否不变，作为二次确认
-2. **扩展 Placement**：给成员也做短距离 sifting（如 ±3 范围）
+1. **组级 Lower Bound**：设计适用于整组移动的 LB 估计，实现组 sift 的剪枝加速
+2. **动态组合并/拆分**：在 sift 过程中发现新对称关系时合并组，不再对称时拆分
 3. **门参数感知**：将门矩阵的指纹加入 profile，区分参数不同的门
 4. **与 Linear Sifting 结合**：对称组内应用线性变换进一步优化
+5. **Window 排列**：在组内使用 window permutation（size 3-4）代替 bubble-sort，在时间和质量间取更好平衡
 
 ---
 
