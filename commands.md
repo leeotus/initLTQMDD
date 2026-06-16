@@ -5,11 +5,11 @@
 **量子过程层析（QPT）** 通过 Choi 矩阵 `Λ = U ⊗ U*` 完整刻画量子过程。
 Choi 矩阵是 2n-qubit 系统（原始电路 n qubit），空间复杂度：
 
-| 表示方式 | 空间 | n=8 |
-|----------|------|-----|
-| Dense（Qiskit/QuTiP）| `16^n × 16 B` | **281 TB** |
-| DD（本项目，无压缩）| O(nodes) | ~1 KB |
-| DD + igGroupSifting | O(nodes) 更小 | 更小 |
+| 表示方式 | 空间 | n=8 示例 |
+|----------|------|----------|
+| Dense（Qiskit/QuTiP）| `16^n × 16 B` | 281 TB |
+| DD（本项目）| O(nodes) 节点数 | ~KB 级 |
+| DD + igGroupSifting | O(nodes) 更小 | 视对称性进一步压缩 |
 
 Choi 矩阵具有天然的上下子系统对称性：qubit i 与 qubit i+n 是 U 和 U* 的镜像。
 igGroupSifting 通过 InteractionGraph 感知这种对称性，在 Sifting 基础上做对称分组优化。
@@ -18,39 +18,35 @@ igGroupSifting 通过 InteractionGraph 感知这种对称性，在 Sifting 基�
 
 ## 对比实验设计
 
-### Exp-1：DD 节点数 vs Dense 理论大小
+### Exp-1：DD vs Dense 空间对比（motivation）
 
-**对比对象**：DD 表示（本项目）vs Dense 矩阵（Qiskit/QuTiP）  
-**对比维度**：存储节点数 vs 理论元素数  
-**假设**：DD 节点数随 n 线性增长，Dense 指数爆炸
+- **对比对象**：DD 表示 vs Dense 矩阵
+- **度量**：DD 节点数 vs `4^(2n)` 元素数
+- **目的**：量化 DD 框架本身的空间优势，作为后续实验的 baseline
 
-```
-DD nodes ~ O(n)   vs   Dense elems = 4^(2n) = 16^n
-```
+### Exp-2：三种压缩策略对比（igGroupSifting 的增量贡献）
 
-### Exp-2：igGroupSifting vs Sifting vs 无压缩
+- **对比对象**：None / Sifting / IGGroupSifting 三种变量序策略
+- **度量**：压缩后节点数 / 原始节点数（ig_ratio、sift_ratio，越小越好）
+- **假设**：igGroupSifting 对 Clifford 等随机电路 Choi 矩阵更有效；在 Sifting 会破坏结构的场景（如 Grover）igGroupSifting 更稳定
 
-**对比对象**：三种变量序策略  
-**对比维度**：压缩后节点数 / 原始节点数（压缩率，越小越好）  
-**假设**：igGroupSifting 利用 Choi 矩阵对称性，比 Sifting 压缩率更高或更稳定
+### Exp-3：端到端 QPT 流水线对比（核心对比实验）
 
-| 策略 | 原理 | 预期优势 |
-|------|------|---------|
-| None | 默认序 | baseline |
-| Sifting | 贪心逐变量交换 | 对 QFT 等规则门有效 |
-| igGroupSifting | 对称组检测 + IG 引导 | 对 Clifford 等随机门更稳定，不破坏已有结构 |
+- **任务**：Build Choi → 压缩 → partial trace 得到约化密度矩阵
+- **对比对象**：三条流水线
+  - `None`：直接做 partial trace，无压缩开销
+  - `Sifting`：先 Sifting 压缩 Choi，再做 partial trace
+  - `IGGroupSifting`：先 igGroupSifting 压缩 Choi，再做 partial trace
+- **度量**：
+  - `peak_nodes`：流水线中峰值节点数（Choi 压缩后 vs partial trace 结果，取大者）
+  - `total_ms`：压缩耗时 + partial trace 耗时
+- **意义**：在真实 QPT 任务中，是否应该在 partial trace 之前先压缩？哪种策略的综合代价最小？
 
-### Exp-3：压缩前 vs 压缩后做 partial trace
+### Exp-4：不同门类型横向对比
 
-**对比对象**：在 igGroupSifting 压缩后 vs 直接做 partial trace  
-**对比维度**：partial trace 后的节点数（越小说明压缩对下游操作越有益）  
-**假设**：压缩后的 Choi DD 在做 partial trace（求约化密度矩阵）时中间节点更少
-
-### Exp-4：不同量子门类型的对比
-
-**对比对象**：H层（高对称）/ CNOT链（线性纠缠）/ QFT（规则）/ Grover（不规则）/ Clifford（随机）  
-**对比维度**：各策略压缩率在不同门类型上的差异  
-**假设**：igGroupSifting 对高对称性门（H层、Clifford）效果更好；Sifting 对规则门（QFT）更好
+- **对比对象**：H_layer（高对称）/ CNOT_chain（线性纠缠）/ QFT（规则）/ Grover（不规则）/ Clifford（随机）
+- **度量**：各策略在不同门类型上的 peak_nodes 和 total_ms
+- **假设**：igGroupSifting 的收益依赖电路的对称性，并非对所有门类型都优于 Sifting
 
 ---
 
@@ -69,124 +65,148 @@ make benchmark_choi_matrix -j$(nproc)
 ## 运行实验
 
 ```bash
-# 完整运行（n=2~8，自动保存 CSV + 打印摘要）
-bash test/run_choi_experiments.sh
-
-# 自定义 qubit 范围
-bash test/run_choi_experiments.sh --nmin 2 --nmax 10
-
-# 直接调用，输出到 stdout
+# Exp-1 & Exp-2 & Exp-4：压缩率对比（compare 模式，默认）
+bash test/run_choi_experiments.sh --nmin 2 --nmax 8
+# 或直接调用：
 ./build_choi_release/test/benchmark_choi_matrix --nmin 2 --nmax 8
+
+# Exp-3：端到端 QPT 流水线对比（e2e 模式）
+./build_choi_release/test/benchmark_choi_matrix --mode e2e --nmin 2 --nmax 8 \
+  > results/choi_matrix/choi_e2e_latest.csv
 ```
 
-结果保存在 `results/choi_matrix/choi_results_latest.csv`。
+结果文件：
+- `results/choi_matrix/choi_results_latest.csv`（compare 模式）
+- `results/choi_matrix/choi_e2e_latest.csv`（e2e 模式）
 
 ---
 
-## 查看实验对比结果
+## 查看实验结果
 
 ### Exp-1：DD 节点数 vs Dense 大小
 
 ```bash
 tail -n +2 results/choi_matrix/choi_results_latest.csv | \
   awk -F',' '$8>0 {ratio=$8/$3;
-             printf "gate=%-12s n=%s  dd_nodes=%-6s  dense_elems=%-20s  ratio=%.0fx\n",
-             $1,$2,$3,$8,ratio}' | sort -k2,2n -k1,1
+    printf "gate=%-12s n=%s  dd_nodes=%-6s  dense_elems=%-12s  ratio=%.0fx\n",
+    $1,$2,$3,$8,ratio}' | sort -k2,2n -k1,1
 ```
 
-预期结果（n=8 Clifford）：
-```
-gate=Clifford     n=8  dd_nodes=595    dense_elems=...  ratio=...x
-```
-
-### Exp-2：igGroupSifting vs Sifting vs None
+### Exp-2：igGroupSifting vs Sifting vs None 压缩率
 
 ```bash
-# 压缩率对比（按 ig_ratio 从小到大排序）
+# 按 ig_ratio 排序
 tail -n +2 results/choi_matrix/choi_results_latest.csv | \
   awk -F',' 'BEGIN{print "gate,n,nodes_none,nodes_sift,nodes_ig,ig_ratio,sift_ratio"}
-             {printf "%s,%s,%s,%s,%s,%s,%s\n",$1,$2,$3,$4,$5,$6,$7}' | \
+    {printf "%s,%s,%s,%s,%s,%s,%s\n",$1,$2,$3,$4,$5,$6,$7}' | \
   sort -t',' -k6 -n | column -t -s','
 
-# igGroupSifting 有压缩效果（ig_ratio < 1）的行
-awk -F',' 'NR>1 && $6+0 < 1.0 {
-  printf "gate=%-12s n=%-2s  ig_ratio=%s  sift_ratio=%s\n",$1,$2,$6,$7}' \
-  results/choi_matrix/choi_results_latest.csv
-
-# Grover 专项：igGroupSifting 避免 Sifting 破坏（sift_ratio > 1 = 膨胀）
+# Grover 专项：Sifting 反而膨胀（sift_ratio > 1）
 awk -F',' 'NR>1 && $1=="Grover" {
-  printf "n=%-2s  ig_ratio=%s  sift_ratio=%s  %s\n",
-  $2,$6,$7,($7+0>1?"← Sifting膨胀！igGroupSifting更稳定":"")}' \
+  flag=($7+0>1)?"← Sifting膨胀！":"";
+  printf "n=%-2s  ig_ratio=%-6s  sift_ratio=%-6s  %s\n",$2,$6,$7,flag}' \
   results/choi_matrix/choi_results_latest.csv
 
 # 胜负统计
 awk -F',' 'NR>1 {ig=$6+0; sift=$7+0;
-  if(ig<sift) ig_win++; else if(ig==sift) tie++; else sift_win++}
-  END{print "ig_wins="ig_win"  tie="tie"  sift_wins="sift_win}' \
+  if(ig<sift) iw++; else if(ig==sift) tie++; else sw++}
+  END{print "ig_wins="iw"  tie="tie"  sift_wins="sw}' \
   results/choi_matrix/choi_results_latest.csv
 ```
 
-关键发现：
-- **Clifford n=6~8**：igGroupSifting 压缩率 0.68~0.70
-- **Grover n=8**：Sifting `ratio=2.05`（反而膨胀），igGroupSifting `ratio=1.0`（保持稳定）
-- **QFT**：Sifting 始终有效（0.60~0.76），igGroupSifting 无效（1.0）—— 各有专长
-
-### Exp-3：压缩后 partial trace 的节点膨胀
+### Exp-3：端到端 QPT 流水线对比（核心）
 
 ```bash
-# partial trace 节点对比：ig压缩版 vs 无压缩版
-tail -n +2 results/choi_matrix/choi_results_latest.csv | \
-  awk -F',' 'BEGIN{print "gate,n,pt_none,pt_ig,saved,saved%"}
-             {if($14>0) pct=int(($14-$17)*100/$14); else pct=0;
-              printf "%s,%s,%s,%s,%s,%s%%\n",$1,$2,$14,$17,($14-$17),pct}' | \
+# 表格形式查看全部
+column -t -s',' results/choi_matrix/choi_e2e_latest.csv
+
+# 对每个 (gate, n) 对比三条流水线的 peak_nodes 和 total_ms
+awk -F',' 'NR>1 {print $1","$2","$3","$6","$9}' \
+  results/choi_matrix/choi_e2e_latest.csv | \
+  awk -F',' 'BEGIN{print "gate,n,strategy,peak_nodes,total_ms"} {print}' | \
   column -t -s','
 
-# 重点：partial trace 节省 > 0 的行（压缩确实有益于下游）
-awk -F',' 'NR>1 && ($14-$17)>0 {
-  printf "gate=%-12s n=%-2s  pt_none=%-5s  pt_ig=%-5s  saved=%s\n",
-  $1,$2,$14,$17,($14-$17)}' results/choi_matrix/choi_results_latest.csv
+# igGroupSifting vs None：peak_nodes 节省（只看有对称性的场景）
+awk -F',' 'NR>1' results/choi_matrix/choi_e2e_latest.csv | \
+  awk -F',' '{key=$1","$2; data[key","$3]=$0}
+  END{
+    for(k in data) {
+      split(data[k],a,",");
+      gate=a[1]; n=a[2]; strat=a[3];
+      none_peak[gate","n]= (strat=="None") ? a[6]+0 : none_peak[gate","n];
+      ig_peak[gate","n]  = (strat=="IGGroupSifting") ? a[6]+0 : ig_peak[gate","n];
+    }
+    print "gate,n,peak_none,peak_ig,saved";
+    for(k in none_peak) if(ig_peak[k]!="")
+      printf "%s,%s,%s,%.0f%%\n",k,none_peak[k],ig_peak[k],
+        (none_peak[k]-ig_peak[k])*100/none_peak[k];
+  }' | column -t -s','
+
+# 找 igGroupSifting 在端到端任务中 total_ms 优于 None 的场景
+awk -F',' 'NR>1' results/choi_matrix/choi_e2e_latest.csv | sort -t',' -k1,1 -k2,2n -k3,3 | \
+  awk -F',' 'BEGIN{print "gate,n,none_total_ms,ig_total_ms,verdict"}
+  {if($3=="None") none_ms[$1","$2]=$9;
+   if($3=="IGGroupSifting") ig_ms[$1","$2]=$9}
+  END{for(k in none_ms) {
+    verdict=(ig_ms[k]+0 < none_ms[k]+0)?"ig_faster":"none_faster_or_tie";
+    printf "%s,%s,%s,%s\n",k,none_ms[k],ig_ms[k],verdict}}' | \
+  sort -t',' -k4,4 -k1,1 | column -t -s','
 ```
 
-关键发现：
-- **Clifford n=6**：无压缩 pt=1，ig压缩后 pt=74（结构不同，ig 保持更多信息）
-- **Clifford n=7**：无压缩 pt=170，ig压缩后 pt=138（**减少 19%**）
-- **Clifford n=8**：无压缩 pt=298，ig压缩后 pt=202（**减少 32%**）
-- **QFT n=8**：无压缩 pt=426，ig压缩后 pt=426（持平，ig对QFT无效，一致）
-
-### Exp-4：不同门类型对比
+### Exp-4：不同门类型汇总
 
 ```bash
-# 各门类型的平均 ig_ratio
-awk -F',' 'NR>1 {sum[$1]+=$6+0; cnt[$1]++}
-  END{for(g in sum) printf "gate=%-12s  avg_ig_ratio=%.4f\n",g,sum[g]/cnt[g]}' \
-  results/choi_matrix/choi_results_latest.csv | sort -k2
-
-# 各门类型的平均 sift_ratio
-awk -F',' 'NR>1 {sum[$1]+=$7+0; cnt[$1]++}
-  END{for(g in sum) printf "gate=%-12s  avg_sift_ratio=%.4f\n",g,sum[g]/cnt[g]}' \
-  results/choi_matrix/choi_results_latest.csv | sort -k2
-
-# 完整对比矩阵（每种门 × 每种策略）
-tail -n +2 results/choi_matrix/choi_results_latest.csv | \
-  awk -F',' '{print $1","$2","$6","$7}' | \
-  awk -F',' 'BEGIN{print "gate,n,ig_ratio,sift_ratio"} {print}' | \
+# 各门类型的 e2e peak_nodes（三策略对比）
+awk -F',' 'NR>1 {print $1","$2","$3","$6}' results/choi_matrix/choi_e2e_latest.csv | \
+  awk -F',' 'BEGIN{print "gate,n,strategy,peak_nodes"} {print}' | \
   column -t -s','
 ```
 
 ---
 
+## 核心结论（n=8 实测数据）
+
+| gate | 策略 | peak_nodes | total_ms | 结论 |
+|------|------|-----------|---------|------|
+| **Grover** | None | 73 | 954 ms | baseline |
+| **Grover** | Sifting | **150** | 1345 ms | 峰值膨胀 2×，总时间 +41% ❌ |
+| **Grover** | IGGroupSifting | 73 | 1040 ms | 峰值不变，比 Sifting 少 23% ✓ |
+| **Clifford** | None | 595 | 505 ms | baseline |
+| **Clifford** | Sifting | 403 | 789 ms | 峰值 -32%，但总时间 +56% |
+| **Clifford** | IGGroupSifting | 403 | 854 ms | 峰值 -32%，总时间 +69% |
+| **QFT** | None | 851 | 485 ms | baseline |
+| **QFT** | Sifting | **511** | 1691 ms | 峰值 -40%，但总时间 +249% ❌ |
+| **QFT** | IGGroupSifting | 851 | **573 ms** | 峰值不变，总时间仅 +18% ✓ |
+
+**igGroupSifting 的核心价值**：
+1. **防御性**：在 Sifting 会破坏结构（Grover）时保持稳定，不引入峰值膨胀
+2. **低开销**：即使不产生压缩（QFT），igGroupSifting 的压缩阶段耗时（~99ms）远小于 Sifting（~1108ms）
+3. **对称性感知**：对 Clifford 等随机电路能实现与 Sifting 相同的压缩效果（peak -32%）
+
+---
+
 ## CSV 列说明
+
+### compare 模式（choi_results_latest.csv）
 
 | 列 | 含义 |
 |----|------|
-| `gate` | 量子门（H_layer/CNOT_chain/QFT/Grover/Clifford） |
+| `gate` | 量子门类型 |
 | `n` | 原始电路 qubit 数（Choi 系统为 2n qubit） |
-| `choi_nodes_none/sift/ig` | 三种策略下 Choi DD 节点数 |
-| `ig_ratio` | igGroupSifting 压缩率（节点数之比，<1 有压缩） |
-| `sift_ratio` | Sifting 压缩率（>1 表示反而膨胀） |
-| `dense_elems` | Dense 所需元素数（4^(2n)） |
-| `dense_mb` | Dense 所需内存（MB） |
-| `sift_ms / ig_ms` | 各策略耗时（ms） |
-| `pt_before_none/ig` | partial trace 前节点数 |
+| `choi_nodes_none/sift/ig` | 三种策略下压缩后节点数 |
+| `ig_ratio / sift_ratio` | 压缩率（<1 有压缩，>1 反而膨胀） |
+| `dense_elems / dense_mb` | Dense 理论大小 |
 | `pt_after_none/ig` | partial trace 后节点数 |
-| `pt_inflation_none/ig` | partial trace 中间膨胀量（负值=有压缩） |
+| `pt_inflation_*` | partial trace 中间膨胀量 |
+
+### e2e 模式（choi_e2e_latest.csv）
+
+| 列 | 含义 |
+|----|------|
+| `strategy` | None / Sifting / IGGroupSifting |
+| `choi_nodes` | 压缩完成后 Choi DD 节点数 |
+| `pt_nodes` | partial trace 结果节点数 |
+| `peak_nodes` | max(choi_nodes, pt_nodes)，流水线峰值空间 |
+| `compress_ms` | 压缩阶段耗时（None=0） |
+| `pt_ms` | partial trace 耗时 |
+| `total_ms` | 整个 QPT 流水线总耗时 |

@@ -176,29 +176,36 @@ struct Row {
 };
 
 // -----------------------------------------------------------------------
+// Helper: build circuit from gate name
+// -----------------------------------------------------------------------
+static unique_ptr<qc::QuantumComputation> buildCircuit(const string& gate, unsigned short n) {
+    if (gate == "H_layer") {
+        auto qcPtr = make_unique<qc::QuantumComputation>(n);
+        for (unsigned short q = 0; q < n; ++q)
+            qcPtr->emplace_back<qc::StandardOperation>(n, q, qc::H);
+        return qcPtr;
+    } else if (gate == "CNOT_chain") {
+        auto qcPtr = make_unique<qc::QuantumComputation>(n);
+        for (unsigned short q = 0; q + 1 < n; ++q)
+            qcPtr->emplace_back<qc::StandardOperation>(n, qc::Control(q), (unsigned short)(q + 1), qc::X);
+        return qcPtr;
+    } else if (gate == "QFT") {
+        return make_unique<qc::QFT>(n);
+    } else if (gate == "Grover" && n >= 2) {
+        return make_unique<qc::Grover>(n, 42);
+    } else if (gate == "Clifford") {
+        return make_unique<qc::RandomCliffordCircuit>(n, n * 3, 42);
+    }
+    return nullptr;
+}
+
+// -----------------------------------------------------------------------
 // Run one (gate, n) configuration
 // -----------------------------------------------------------------------
 static bool runRow(const string& gate, unsigned short n, Row& out) {
     try {
-        // ---- Build the gate unitary ----
-        unique_ptr<qc::QuantumComputation> qcPtr;
-        if (gate == "H_layer") {
-            qcPtr = make_unique<qc::QuantumComputation>(n);
-            for (unsigned short q = 0; q < n; ++q)
-                qcPtr->emplace_back<qc::StandardOperation>(n, q, qc::H);
-        } else if (gate == "CNOT_chain") {
-            qcPtr = make_unique<qc::QuantumComputation>(n);
-            for (unsigned short q = 0; q + 1 < n; ++q)
-                qcPtr->emplace_back<qc::StandardOperation>(n, qc::Control(q), (unsigned short)(q + 1), qc::X);
-        } else if (gate == "QFT") {
-            qcPtr = make_unique<qc::QFT>(n);
-        } else if (gate == "Grover" && n >= 2) {
-            qcPtr = make_unique<qc::Grover>(n, 42);
-        } else if (gate == "Clifford") {
-            qcPtr = make_unique<qc::RandomCliffordCircuit>(n, n * 3, 42);
-        } else {
-            return false;
-        }
+        auto qcPtr = buildCircuit(gate, n);
+        if (!qcPtr) return false;
 
         // ---- Fresh package per row to avoid cross-contamination ----
         auto pkg = make_unique<dd::Package>();
@@ -290,18 +297,116 @@ static long long denseElems(unsigned short n) {
 }
 
 // -----------------------------------------------------------------------
+// End-to-end QPT pipeline:
+//   Build Choi → [optional compress] → partial trace → reduced state
+//
+// Metrics per pipeline:
+//   peak_nodes  = max(choi_nodes_after_compress, pt_result_nodes)
+//   total_ms    = compress_ms + partial_trace_ms
+//   final_nodes = nodes of the partial trace result
+//
+// CSV: gate,n,strategy,choi_nodes,pt_nodes,peak_nodes,compress_ms,pt_ms,total_ms
+// -----------------------------------------------------------------------
+static void runE2EPipeline(const string& gate, unsigned short n,
+                           unique_ptr<qc::QuantumComputation>& qcPtr,
+                           dd::DynamicReorderingStrategy strat,
+                           const string& stratName) {
+    try {
+        auto pkg = make_unique<dd::Package>();
+        pkg->setMode(dd::Matrix);
+
+        dd::Edge U = qcPtr->buildFunctionality(pkg);
+        pkg->incRef(U);
+        dd::Edge choi = buildChoi(pkg, U, n);
+        unsigned short totalVars = 2 * n;
+
+        // --- Step 1: compress (optional) ---
+        double compress_ms = 0.0;
+        unsigned int choi_nodes = pkg->size(choi);
+
+        if (strat != dd::None) {
+            if (strat == dd::IGGroupSifting) {
+                dd::InteractionGraph ig = buildChoiIG(*qcPtr, n);
+                pkg->setInteractionGraph(ig);
+            }
+            qc::permutationMap vm;
+            for (unsigned short q = 0; q < totalVars; ++q) vm[q] = q;
+            auto t0 = Clock::now();
+            choi = pkg->dynamicReorder(choi, vm, strat);
+            compress_ms = chrono::duration<double, milli>(Clock::now() - t0).count();
+            choi_nodes = pkg->size(choi);
+        }
+
+        // --- Step 2: partial trace (upper n qubits) ---
+        bitset<dd::MAXN> elim;
+        for (unsigned short q = n; q < 2 * n; ++q) elim.set(q);
+
+        pkg->incRef(choi);
+        auto t1 = Clock::now();
+        dd::Edge reduced = pkg->partialTrace(choi, elim);
+        double pt_ms = chrono::duration<double, milli>(Clock::now() - t1).count();
+        pkg->incRef(reduced);
+
+        unsigned int pt_nodes = pkg->size(reduced);
+        unsigned int peak_nodes = max(choi_nodes, pt_nodes);
+        double total_ms = compress_ms + pt_ms;
+
+        pkg->decRef(reduced);
+        pkg->decRef(choi);
+        pkg->garbageCollect();
+
+        cout << gate << "," << (int)n << "," << stratName
+             << "," << choi_nodes
+             << "," << pt_nodes
+             << "," << peak_nodes
+             << "," << fixed << setprecision(1) << compress_ms
+             << "," << fixed << setprecision(1) << pt_ms
+             << "," << fixed << setprecision(1) << total_ms
+             << "\n";
+        cout.flush();
+
+    } catch (const exception& e) {
+        cerr << "[e2e skip] " << gate << " n=" << n << " " << stratName << ": " << e.what() << "\n";
+    }
+}
+
+// -----------------------------------------------------------------------
 // main
 // -----------------------------------------------------------------------
 int main(int argc, char** argv) {
     unsigned short nmin = 2, nmax = 8;
+    string mode = "compare";  // compare | e2e
     vector<string> gates = {"H_layer", "CNOT_chain", "QFT", "Grover", "Clifford"};
 
     for (int i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "--nmin") && i+1 < argc) nmin = (unsigned short)atoi(argv[++i]);
         else if (!strcmp(argv[i], "--nmax") && i+1 < argc) nmax = (unsigned short)atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--mode") && i+1 < argc) mode = argv[++i];
     }
 
-    // CSV header
+    // ================================================================
+    // Mode: e2e — end-to-end QPT pipeline comparison
+    // Task: Build Choi → compress → partial trace → reduced density matrix
+    // Goal: Which strategy gives the lowest peak nodes & total time?
+    // ================================================================
+    if (mode == "e2e") {
+        cout << "gate,n,strategy,choi_nodes,pt_nodes,peak_nodes,compress_ms,pt_ms,total_ms\n";
+        for (unsigned short n = nmin; n <= nmax; ++n) {
+            for (const auto& gate : gates) {
+                if (gate == "Grover" && n < 2) continue;
+                auto qcPtr = buildCircuit(gate, n);
+                if (!qcPtr) continue;
+                runE2EPipeline(gate, n, qcPtr, dd::None,           "None");
+                runE2EPipeline(gate, n, qcPtr, dd::Sifting,        "Sifting");
+                runE2EPipeline(gate, n, qcPtr, dd::IGGroupSifting, "IGGroupSifting");
+            }
+        }
+        return 0;
+    }
+
+    // ================================================================
+    // Mode: compare — compression ratio + partial trace inflation
+    // ================================================================
     cout << "gate,n"
          << ",choi_nodes_none,choi_nodes_sift,choi_nodes_ig"
          << ",ig_ratio,sift_ratio"
