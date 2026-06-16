@@ -83,7 +83,8 @@ package_add_test(${PROJECT_NAME}_test ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/tes
                             ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/test_random_clifford.cpp
 							${CMAKE_CURRENT_SOURCE_DIR}/unittests/test_io.cpp
 							${CMAKE_CURRENT_SOURCE_DIR}/unittests/test_ddfunctionality.cpp
-                            ${CMAKE_CURRENT_SOURCE_DIR}/unittests/test_qfr_functionality.cpp)
+                            ${CMAKE_CURRENT_SOURCE_DIR}/unittests/test_qfr_functionality.cpp
+                            ${CMAKE_CURRENT_SOURCE_DIR}/unittests/test_density_matrix.cpp)
 
 add_custom_command(TARGET ${PROJECT_NAME}_test
                    POST_BUILD
@@ -91,4 +92,21 @@ add_custom_command(TARGET ${PROJECT_NAME}_test
                    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/circuits $<TARGET_FILE_DIR:${PROJECT_NAME}_test>/circuits
                    COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE_DIR:${PROJECT_NAME}_test>/circuits ${CMAKE_BINARY_DIR}/circuits
                    COMMENT "Copying circuits and creating symlinks for ${PROJECT_NAME}_test"
+                   VERBATIM)
+
+# Density matrix benchmark (standalone, no gtest)
+add_executable(benchmark_density_matrix ${CMAKE_CURRENT_SOURCE_DIR}/benchmark_density_matrix.cpp)
+target_compile_features(benchmark_density_matrix PUBLIC cxx_std_14)
+set_target_properties(benchmark_density_matrix PROPERTIES CXX_EXTENSIONS OFF)
+target_link_libraries(benchmark_density_matrix PUBLIC ${PROJECT_NAME})
+if(MSVC)
+    target_compile_options(benchmark_density_matrix PUBLIC "/W4" "$<$<CONFIG:RELEASE>:/O2 /GL>")
+else()
+    target_compile_options(benchmark_density_matrix PRIVATE -Wall $<$<CONFIG:RELEASE>:-O3 -mtune=native -march=native>)
+endif()
+add_custom_command(TARGET benchmark_density_matrix
+                   POST_BUILD
+                   COMMAND ${CMAKE_COMMAND} -E create_symlink
+                       $<TARGET_FILE_DIR:benchmark_density_matrix>/benchmark_density_matrix
+                       ${CMAKE_BINARY_DIR}/benchmark_density_matrix
                    VERBATIM)
