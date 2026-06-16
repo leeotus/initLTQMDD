@@ -75,6 +75,17 @@ macro(package_add_test TESTNAME)
 	set_target_properties(${TESTNAME} PROPERTIES FOLDER tests)
 endmacro()
 
+# Choi matrix benchmark (standalone, Release-optimized)
+add_executable(benchmark_choi_matrix ${CMAKE_CURRENT_SOURCE_DIR}/benchmark_choi_matrix.cpp)
+target_link_libraries(benchmark_choi_matrix PRIVATE ${PROJECT_NAME})
+target_compile_features(benchmark_choi_matrix PUBLIC cxx_std_17)
+set_property(TARGET benchmark_choi_matrix PROPERTY CXX_EXTENSIONS OFF)
+if(MSVC)
+    target_compile_options(benchmark_choi_matrix PUBLIC "/W4" "$<$<CONFIG:RELEASE>:/O2 /GL>")
+else()
+    target_compile_options(benchmark_choi_matrix PRIVATE $<$<CONFIG:RELEASE>:-O3 -mtune=native -march=native -g>)
+endif()
+
 package_add_test(${PROJECT_NAME}_test ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/test_qft.cpp
 							${CMAKE_CURRENT_SOURCE_DIR}/algorithms/test_grover.cpp 
 							${CMAKE_CURRENT_SOURCE_DIR}/algorithms/test_bernsteinvazirani.cpp
