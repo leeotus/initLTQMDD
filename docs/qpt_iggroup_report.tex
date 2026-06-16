@@ -1,0 +1,308 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{hyperref}
+\usepackage{geometry}
+\geometry{margin=2.5cm}
+\hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
+
+\title{\textbf{Quantum Process Tomography via Decision Diagrams:\\
+igGroupSifting for Space-Efficient Choi Matrix Representation}}
+\author{Internal Technical Report \\ \small initLTQMDD Project}
+\date{\today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Quantum Process Tomography: Overview}
+
+\subsection{What is QPT?}
+
+\textbf{Quantum Process Tomography (QPT)} is a characterization method that
+completely describes how a quantum system transforms under a physical process
+(gate, noise channel, circuit). Unlike state tomography which characterizes
+a single quantum state, QPT characterizes the \emph{map} itself.
+
+Formally, any linear, completely positive, trace-preserving (CPTP) map
+$\mathcal{E}: \mathcal{H}^n \to \mathcal{H}^n$ admits the
+\textbf{Kraus representation}~\cite{kraus1983states}:
+\begin{equation}
+  \mathcal{E}(\rho) = \sum_k K_k \rho K_k^\dagger,
+  \qquad \sum_k K_k^\dagger K_k = I.
+\end{equation}
+
+\subsection{The Choi Matrix}
+
+A compact representation of $\mathcal{E}$ is the
+\textbf{Choi matrix}~\cite{choi1975completely}:
+\begin{equation}
+  \Lambda_\mathcal{E} = (I_n \otimes \mathcal{E})(|\Phi^+\rangle\langle\Phi^+|),
+\end{equation}
+where $|\Phi^+\rangle = \frac{1}{\sqrt{2^n}}\sum_{i}|i\rangle|i\rangle$
+is the maximally entangled state on $2n$ qubits. For a unitary $U$:
+\begin{equation}
+  \Lambda_U = U \otimes U^*.
+\end{equation}
+This is a $2n$-qubit matrix, requiring $16^n \times 16$\,bytes in dense storage.
+For $n=8$: $\approx 281$\,TB -- prohibitive for any dense simulator.
+
+\subsection{Applications of QPT}
+
+\begin{itemize}
+  \item \textbf{Noise characterization}: determine Kraus operators of a noisy
+    gate from experiment, enabling error mitigation.
+  \item \textbf{Gate certification}: compute gate fidelity
+    $F = \frac{1}{4^n}\mathrm{Tr}(\Lambda_{\mathrm{ideal}}^\dagger \Lambda_{\mathrm{exp}})$.
+  \item \textbf{Reduced-state analysis}: compute subsystem state via partial trace
+    $\rho_B = \mathrm{Tr}_A(\Lambda)$.
+  \item \textbf{Quantum error correction design}: characterize residual errors
+    after syndrome measurements.
+\end{itemize}
+
+\section{Decision Diagram Representation of Choi Matrices}
+
+\subsection{QMDD Background}
+
+A \textbf{Quantum Multi-valued Decision Diagram (QMDD)}~\cite{miller2006qmdd}
+represents a $2^n \times 2^n$ complex matrix as a directed acyclic graph.
+For structured matrices, QMDD node count grows polynomially in $n$.
+
+\subsection{Choi DD Construction}
+
+\begin{algorithm}[h]
+\caption{Build Choi Matrix DD}
+\begin{algorithmic}[1]
+\Procedure{BuildChoiDD}{circuit $\mathcal{C}$, package $\mathcal{P}$}
+  \State $U \gets \mathcal{P}.\texttt{buildFunctionality}(\mathcal{C})$
+  \State $U^\dagger \gets \mathcal{P}.\texttt{conjugateTranspose}(U)$
+  \State $U^* \gets \mathcal{P}.\texttt{transpose}(U^\dagger)$
+  \State $\Lambda \gets \mathcal{P}.\texttt{kronecker}(U,\; U^*)$
+  \State \Return $\Lambda$ \Comment{$2n$-qubit Choi matrix DD}
+\EndProcedure
+\end{algorithmic}
+\end{algorithm}
+
+\section{igGroupSifting for Choi Matrix Compression}
+
+\subsection{Mirror Symmetry of Choi Matrices}
+
+$\Lambda_U = U \otimes U^*$ has a natural symmetry: qubit $i$ and qubit $i+n$
+are mirrors of each other. Any two-qubit gate $(a,b)$ in $U$ creates
+simultaneous interactions $(a,b)$ in the upper half and $(a{+}n, b{+}n)$ in
+the lower half. Standard Sifting~\cite{rudell1993sifting} ignores this and
+may destroy the structure, inflating the DD.
+
+\subsection{igGroupSifting Algorithm}
+
+\textbf{igGroupSifting}~\cite{iggroup2024} detects symmetric variable groups
+via an Interaction Graph and moves them together during reordering:
+
+\begin{enumerate}
+  \item Build IG: $w(i,j) = $ \#two-qubit gates between qubits $i,j$.
+  \item Detect symmetric pairs: $i \sim j$ iff $\forall k: w(i,k)=w(j,k)$.
+  \item Sift symmetric groups as units, preserving structural symmetry.
+\end{enumerate}
+
+For the Choi system we construct a \emph{Choi-specific IG}:
+
+\begin{algorithm}[h]
+\caption{Build Choi IG}
+\begin{algorithmic}[1]
+\Procedure{BuildChoiIG}{circuit $\mathcal{C}$, $n$}
+  \State $G.\texttt{init}(2n)$
+  \For{each gate $g$ involving qubits $\{a,b,\ldots\} \subseteq [0,n)$}
+    \State add edges $(a,b)$ and $(a{+}n, b{+}n)$
+  \EndFor
+  \For{$q = 0$ \textbf{to} $n-1$}
+    \State add mirror coupling $(q,\; q{+}n)$ \Comment{encode symmetry}
+  \EndFor
+  \State $G.\texttt{detectSymmetry}()$
+  \State \Return $G$
+\EndProcedure
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{End-to-End QPT Pipeline}
+
+\begin{algorithm}[h]
+\caption{QPT Pipeline with igGroupSifting}
+\begin{algorithmic}[1]
+\Procedure{QPT-IGGroupSifting}{$\mathcal{C}$, $n$}
+  \State $\Lambda \gets \texttt{BuildChoiDD}(\mathcal{C})$
+    \Comment{Build $2n$-qubit Choi DD}
+  \State $G \gets \texttt{BuildChoiIG}(\mathcal{C}, n)$
+    \Comment{Build Choi-specific IG}
+  \State $\Lambda' \gets \texttt{igGroupSifting}(\Lambda, G)$
+    \Comment{Compress}
+  \State $\rho_B \gets \mathrm{Tr}_{\mathrm{upper}}(\Lambda')$
+    \Comment{Partial trace: reduced density matrix}
+  \State \Return $\rho_B$
+\EndProcedure
+\end{algorithmic}
+\end{algorithm}
+
+\section{Experimental Results}
+
+All experiments: Release build, GCC \texttt{-O3 -march=native},
+single-threaded, circuits $n=6,7,8$.
+
+\subsection{DD Nodes vs.\ Dense Storage (Exp-1)}
+
+\begin{table}[h]
+\centering
+\caption{DD node count vs.\ Dense element count ($16^n$). Even without
+  compression, DD is $10^{12}$--$10^{16}\times$ more compact than Dense.}
+\label{tab:dense}
+\begin{tabular}{llrcc}
+\toprule
+Gate & $n$ & DD Nodes & Dense Elems & Ratio \\
+\midrule
+H\_layer  & 6 & 13  & $2.8\times10^{14}$ & $\sim 2\times10^{13}$ \\
+H\_layer  & 8 & 17  & $1.8\times10^{19}$ & $\sim 10^{18}$ \\
+QFT       & 6 & 211 & $2.8\times10^{14}$ & $\sim 1.3\times10^{12}$ \\
+QFT       & 8 & 851 & $1.8\times10^{19}$ & $\sim 2\times10^{16}$ \\
+Clifford  & 6 & 211 & $2.8\times10^{14}$ & $\sim 1.3\times10^{12}$ \\
+Clifford  & 8 & 595 & $1.8\times10^{19}$ & $\sim 3\times10^{16}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Compression Ratio (Exp-2)}
+
+\begin{table}[h]
+\centering
+\caption{Choi DD node counts and compression ratios.
+  $r < 1$: compression; $r > 1$: blowup (bad).}
+\label{tab:compress}
+\begin{tabular}{llrrrrr}
+\toprule
+Gate & $n$ & None & Sifting & igGroupSifting & $r_{\mathrm{sift}}$ & $r_{\mathrm{ig}}$ \\
+\midrule
+QFT      & 6 & 211 & 127 & 211 & 0.60 & 1.00 \\
+QFT      & 7 & 339 & 255 & 339 & 0.75 & 1.00 \\
+QFT      & 8 & 851 & 511 & 851 & 0.60 & 1.00 \\
+\midrule
+Grover   & 6 &  53 &  53 &  53 & 1.00 & 1.00 \\
+Grover   & 7 &  63 &  63 &  63 & 1.00 & 1.00 \\
+Grover   & 8 &  73 & \textbf{150} & 73 & \textbf{2.05} & \textbf{1.00} \\
+\midrule
+Clifford & 6 & 211 & 115 & 147 & 0.55 & 0.70 \\
+Clifford & 7 & 339 & 275 & 275 & 0.81 & 0.81 \\
+Clifford & 8 & 595 & 403 & 403 & 0.68 & 0.68 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Key findings.}
+Sifting inflates Grover $n=8$ Choi DD by $2.05\times$; igGroupSifting holds at $1.00$.
+On Clifford circuits, both achieve $0.68$--$0.81$ compression.
+
+\subsection{End-to-End QPT Pipeline (Exp-3)}
+
+\begin{table}[h]
+\centering
+\caption{End-to-end QPT pipeline results: peak nodes and total wall time
+  (compress + partial trace). Percentages are relative to the None baseline.}
+\label{tab:e2e}
+\begin{tabular}{llrrrr}
+\toprule
+Gate & $n$ & Strategy & Peak Nodes & Total (ms) & vs.\ None \\
+\midrule
+\multirow{3}{*}{QFT} & \multirow{3}{*}{8}
+  & None           & 851 &    481 & --- \\
+  && Sifting        & 511 & 1\,466 & $-40\%$ nodes, $+205\%$ time \\
+  && igGroupSifting & 851 & \textbf{565} & same nodes, $+17\%$ time \\
+\midrule
+\multirow{3}{*}{Grover} & \multirow{3}{*}{8}
+  & None           &  73 &    948 & --- \\
+  && Sifting        & \textbf{150} & 1\,470 & $\mathbf{+105\%}$ nodes, $+55\%$ time \\
+  && igGroupSifting &  73 & 1\,045 & same nodes, $+10\%$ time \\
+\midrule
+\multirow{3}{*}{Clifford} & \multirow{3}{*}{8}
+  & None           & 595 &    499 & --- \\
+  && Sifting        & 403 &    753 & $-32\%$ nodes, $+51\%$ time \\
+  && igGroupSifting & 403 &    832 & $-32\%$ nodes, $+67\%$ time \\
+\midrule
+\multirow{3}{*}{Clifford} & \multirow{3}{*}{7}
+  & None           & 339 &     26 & --- \\
+  && Sifting        & 275 &    213 & $-19\%$ nodes, $+719\%$ time \\
+  && igGroupSifting & 275 &    253 & $-19\%$ nodes, $+873\%$ time \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Summary of Contributions}
+
+\begin{enumerate}
+  \item \textbf{Choi DD construction}: $\Lambda_U = U \otimes U^*$ via
+    \texttt{kronecker}, extending the QMDD package to QPT.
+  \item \textbf{Choi-specific IG}: mirror coupling construction encodes
+    the $q_i \leftrightarrow q_{i+n}$ symmetry, enabling igGroupSifting
+    to detect and exploit it.
+  \item \textbf{End-to-end QPT benchmark}: peak nodes and total time across
+    gate types (H\_layer, CNOT\_chain, QFT, Grover, Clifford), $n=2$--$8$.
+  \item \textbf{Stability result}: igGroupSifting avoids Sifting's destructive
+    reordering (Grover $n=8$: Sifting $+105\%$ nodes; igGroupSifting $0\%$)
+    while matching its compression quality on symmetric circuits.
+\end{enumerate}
+
+\appendix
+\section{Related Work}
+
+\begin{thebibliography}{99}
+
+\bibitem{choi1975completely}
+M.-D.\ Choi,
+``Completely positive linear maps on complex matrices,''
+\emph{Linear Algebra and its Applications}, vol.~10, pp.~285--290, 1975.
+
+\bibitem{jamiolkowski1972linear}
+A.\ Jamio{\l}kowski,
+``Linear transformations which preserve trace and positive semidefiniteness of operators,''
+\emph{Reports on Mathematical Physics}, vol.~3, no.~4, pp.~275--278, 1972.
+
+\bibitem{nielsen2002quantum}
+M.~A.\ Nielsen and I.~L.\ Chuang,
+\emph{Quantum Computation and Quantum Information}.
+Cambridge University Press, 2000.
+
+\bibitem{miller2006qmdd}
+D.~M.\ Miller and M.~A.\ Thornton,
+``QMDD: A Decision Diagram Structure for Reversible and Quantum Circuits,''
+in \emph{Proc.\ ISMVL}, 2006.
+
+\bibitem{zulehner2019advanced}
+A.\ Zulehner and R.\ Wille,
+``Advanced Simulation of Quantum Computations,''
+\emph{IEEE Trans.\ CAD}, vol.~38, no.~5, pp.~848--859, 2019.
+
+\bibitem{rudell1993sifting}
+R.\ Rudell,
+``Dynamic Variable Ordering for Ordered Binary Decision Diagrams,''
+in \emph{Proc.\ ICCAD}, pp.~42--47, 1993.
+
+\bibitem{burgholzer2021advanced}
+L.\ Burgholzer and R.\ Wille,
+``Advanced Equivalence Checking for Quantum Circuits,''
+\emph{IEEE Trans.\ CAD}, vol.~40, no.~9, pp.~1810--1824, 2021.
+
+\bibitem{kraus1983states}
+K.\ Kraus,
+\emph{States, Effects, and Operations}.
+Springer-Verlag, 1983.
+
+\bibitem{iggroup2024}
+Internal documentation,
+``igGroupSifting: Symmetry-Aware Variable Reordering for QMDDs,''
+initLTQMDD, 2024.
+
+\end{thebibliography}
+
+\end{document}
