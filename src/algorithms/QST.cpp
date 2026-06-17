@@ -177,7 +177,7 @@ dd::Edge QST::makePauliMeasurementDD(
 
     std::array<short, dd::MAXN> line;
     line.fill(LINE_DEFAULT);
-    line[qubit] = (short)qubit;
+    line[qubit] = LINE_TARGET;  // must be RADIX=2, not qubit index
 
     dd::Edge gate = dd->makeGateDD(mat, nQubits, line);
     return gate;
@@ -444,46 +444,25 @@ QST::QSTResult QST::performMLE(
             dd->decRef(rhoProj);
             double pk = std::max(prob.r, 1e-12);
             double weight = projInfo.frequency / pk;
+            if (!std::isfinite(weight)) weight = 1e6;
+            weight = std::min(weight, 1e6);
 
-            // Create a scaled copy of the projector by building a fresh one
-            // with the weight absorbed into the terminal multiplier
-            // We use DDzero/DDone as our primitives and multiply by weight
-            // The simplest approach: create a scalar DD and multiply
-            // But for iterative ML, the frequency-weighted sum is large
-            
-            // Approach: For each projector, compute weight * Π_k via edge weight
-            // Using the fact that the top-level weight of an edge gets multiplied through
-            // We'll create a fresh projector scaled at construction time
-            
-            // Pragma: build the R directly using add with edge-weight scaling
-            // Since we can't easily scale a DD, we accumulate via add with small weights
-            // This is simplified: weight the R contribution with a scalar gate
-            
-            // Build a 1-qubit scalar gate [[w,0],[0,w]] acting on qubit 0 to scale
-            // Equivalent to: multiply by w * I
-            // For pure scaling, multiply the projector by weight-scaled identity
-            
-            // Simplified: use the w * Π directly as a new DD
-            // We can build it per-outcome, which is expensive but correct
-            
-            dd::Edge scaledProj = dd->makeIdent(0, config.nQubits - 1);
-            dd->incRef(scaledProj);
-            for (unsigned int q = 0; q < config.nQubits; ++q) {
-                // Create single-qubit projector for this basis/outcome
-                dd::Edge singleProj2 = makePauliMeasurementDD(
-                    dd, config.nQubits, q,
-                    bases[projInfo.basisIdx].bases[q],
-                    measurements[0].bits.size() > q ? measurements[0].bits[q] : 0);
-                // Actually we need the outcome bits from the measurement, but they're structured differently
-                // Simpler: just reuse projInfo.projector which is already the full projector
+            // Scale projector: create new edge with root weight *= w
+            dd::Edge scaledProj = projInfo.projector;
+            if (scaledProj.p != nullptr && scaledProj.w != dd::ComplexNumbers::ZERO) {
+                double re = dd::ComplexNumbers::val(scaledProj.w.r) * weight;
+                double im = dd::ComplexNumbers::val(scaledProj.w.i) * weight;
+                if (!std::isfinite(re)) re = 0.0;
+                if (!std::isfinite(im)) im = 0.0;
+                scaledProj.w = dd->cn.lookup(re, im);
             }
-            dd->decRef(scaledProj);
-            
-            // SIMPLIFIED APPROACH: Skip the weight scaling and just add projectors with unit weight
-            // This converges slower but is numerically stable
-            dd::Edge newR = dd->add(R, projInfo.projector);
+            dd->incRef(scaledProj);
+
+            dd::Edge newR = dd->add(R, scaledProj);
             dd->incRef(newR);
             dd->decRef(R);
+            dd->decRef(scaledProj);
+            dd->garbageCollect();
             R = newR;
         }
 
@@ -494,12 +473,21 @@ QST::QSTResult QST::performMLE(
         dd->incRef(R_rhoR);
         dd->decRef(rhoR);
 
-        // Step 3: Normalize
+        // Step 3: Normalize ρ' = R ρ R / Tr(R ρ R)
         dd::ComplexValue trVal = dd->trace(R_rhoR);
-        double traceRho = std::max(trVal.r, 1e-15);
-        
-        // Use the built-in normalize function which handles scaling
+        double traceRho = trVal.r;
+        if (!std::isfinite(traceRho) || traceRho <= 0.0 || traceRho > 1e20) {
+            dd->decRef(R_rhoR);
+            dd->decRef(R);
+            dd->garbageCollect();
+            break;
+        }
+        double inv = 1.0 / traceRho;
+        // Scale the root edge weight to normalize
         dd::Edge normalized = R_rhoR;
+        normalized.w = dd->cn.lookup(
+            dd::ComplexNumbers::val(R_rhoR.w.r) * inv,
+            dd::ComplexNumbers::val(R_rhoR.w.i) * inv);
         dd->incRef(normalized);
         dd->decRef(R_rhoR);
         dd->decRef(rho);
