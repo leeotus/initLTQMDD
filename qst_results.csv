@@ -1,0 +1,2 @@
+Circuit,NQubits,Strategy,Rounds,Fidelity,TraceDistance,RhoSize,PeakDD,TimeMs
+alu4_201,22,IGGrpSift,100/100,0,0,609,11050,0

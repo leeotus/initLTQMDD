@@ -32,7 +32,6 @@ endif()
 add_custom_command(TARGET ${APP_MAIN_NAME}
                    POST_BUILD
                    COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE_DIR:${APP_MAIN_NAME}>/${APP_MAIN_NAME} ${CMAKE_BINARY_DIR}/${APP_MAIN_NAME}
-                #    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/circuits/ $<TARGET_FILE_DIR:${APP_MAIN_NAME}>/circuits
                    COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE_DIR:${APP_MAIN_NAME}>/circuits ${CMAKE_BINARY_DIR}/circuits
                    COMMENT "Copying circuits and creating symlinks for ${APP_MAIN_NAME}"
                    VERBATIM)
@@ -116,4 +115,23 @@ add_custom_command(TARGET ${IG_BENCH_NAME}
                    POST_BUILD
                    COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE_DIR:${IG_BENCH_NAME}>/${IG_BENCH_NAME} ${CMAKE_BINARY_DIR}/${IG_BENCH_NAME}
                    COMMENT "Creating symlink for ${IG_BENCH_NAME}"
+                   VERBATIM)
+
+# ============================================================
+# QST Application (Quantum State Tomography)
+# ============================================================
+set(QST_APP_NAME "qst")
+add_executable(${QST_APP_NAME} ${CMAKE_CURRENT_SOURCE_DIR}/qst_app.cpp ${CMAKE_SOURCE_DIR}/src/algorithms/QST.cpp)
+target_compile_features(${QST_APP_NAME} PUBLIC cxx_std_14)
+set_target_properties(${QST_APP_NAME} PROPERTIES CXX_EXTENSIONS OFF)
+target_link_libraries(${QST_APP_NAME} PUBLIC ${PROJECT_NAME})
+if(MSVC)
+        target_compile_options(${QST_APP_NAME} PUBLIC "/W4" "$<$<CONFIG:RELEASE>:/O2 /GL>")
+else()
+        target_compile_options(${QST_APP_NAME} PRIVATE -Wall $<$<CONFIG:DEBUG>:-g3 -Og> $<$<CONFIG:RELEASE>:-O3 -mtune=native -march=native -DNDEBUG>)
+endif()
+add_custom_command(TARGET ${QST_APP_NAME}
+                   POST_BUILD
+                   COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE_DIR:${QST_APP_NAME}>/${QST_APP_NAME} ${CMAKE_BINARY_DIR}/${QST_APP_NAME}
+                   COMMENT "Creating symlink for ${QST_APP_NAME}"
                    VERBATIM)
