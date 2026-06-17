@@ -438,8 +438,9 @@ int main(int argc, char** argv) {
     }
 
     string cf(argv[1]);
-    int nM    = (argc > 2) ? atoi(argv[2]) : 10;
-    int nIter = (argc > 3) ? atoi(argv[3]) : 50;
+    int nM      = (argc > 2) ? atoi(argv[2]) : 10;
+    int nIter   = (argc > 3) ? atoi(argv[3]) : 50;
+    bool runModeB_flag = (argc > 4) ? (atoi(argv[4]) != 0) : true;
 
     auto qc = make_unique<qc::QuantumComputation>(cf);
     int N = (int)qc->getNqubits();
@@ -555,14 +556,16 @@ int main(int argc, char** argv) {
     }
     cout << string(66,'-') << "\n\n";
 
-    // === Mode B (only if 2N <= MAXN) ===
-    if(N*2 <= (int)dd::MAXN) {
+    // === Mode B (only if 2N <= MAXN and flag enabled) ===
+    if(runModeB_flag && N*2 <= (int)dd::MAXN) {
         printHeader("Mode B: 2N-var rho_true=|psi><psi|, F=Tr(rho_true*rho)");
         for(int s=0;s<NSTRATS;++s){
             auto r = runModeB(qc, basisList, N, nIter, STRATS[s]);
             printRow(NAMES[s], r);
         }
         cout << string(66,'-') << "\n\n";
+    } else if(!runModeB_flag) {
+        cout << "Mode B skipped (disabled by argument)\n\n";
     } else {
         cout << "Mode B skipped (N*2=" << N*2 << " > MAXN=" << dd::MAXN << ")\n\n";
     }
