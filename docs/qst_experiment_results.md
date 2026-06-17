@@ -21,14 +21,164 @@
 
 ### Mode A vs Mode B
 
-- **Mode A**：密度矩阵 $\rho$ 用 N 变量矩阵 DD 表示，保真度 $F = \langle\psi|\rho|\psi\rangle$
-- **Mode B**：$\rho_{\text{true}} = |\psi\rangle\langle\psi|$ 用 2N 变量 DD 表示，保真度 $F = \text{Tr}(\rho_{\text{true}} \cdot \rho_{\text{recon}})$
+两种模式对应两种不同的密度矩阵表示和保真度计算方式：
 
-### 本次实验均使用 Mode A
+#### Mode A（N 变量，向量保真度）
+
+密度矩阵 $\rho_{\text{recon}}$ 用 **N 个变量**的矩阵 DD 表示（$2^N \times 2^N$ 矩阵，N 变量 DD）。
+
+- **投影算子**：每个测量 $(b, s)$ 对应 N-qubit 投影 $\Pi_{b,s}$，也用 N 变量矩阵 DD 表示
+- **测量概率**：$p(b,s) = \langle\psi|\Pi_{b,s}|\psi\rangle$（先构建真实态 $|\psi\rangle$，然后矩阵-向量乘法）
+- **MLE 迭代**：$\rho \leftarrow R\rho R / \text{Tr}(R\rho R)$，其中 $R = \sum_k \frac{f_k}{p_k} \Pi_k$
+- **保真度**：$F = \langle\psi|\rho_{\text{recon}}|\psi\rangle$（内积）
+- **DD 规模**：N 变量，节点数通常较小
+- **适用范围**：任意 N，**推荐使用**，本实验主要测量指标
+
+#### Mode B（2N 变量，矩阵迹保真度）
+
+密度矩阵 $\rho_{\text{true}} = |\psi\rangle\langle\psi|$ 和 $\rho_{\text{recon}}$ 均用 **2N 个变量**的矩阵 DD 表示（通过 Kronecker 积构造）。
+
+- **真实态**：$\rho_{\text{true}} = |\psi\rangle \otimes \langle\psi|$，用 `dd->kronecker(psi, bra)` 构造
+- **投影算子**：在 2N-var 空间中只作用于前 N 个 ket 变量
+- **保真度**：$F = \text{Tr}(\rho_{\text{true}} \cdot \rho_{\text{recon}})$（完整矩阵迹）
+- **DD 规模**：2N 变量，节点数指数级更大，内存和时间开销极高
+- **限制**：当 $2N > \text{MAXN}=128$ 时自动跳过；实际上 N>6 时已非常慢
+- **价值**：提供一种不依赖向量 $|\psi\rangle$ 的保真度度量，适用于混合态验证（理论价值高于实用价值）
+
+#### 对比
+
+| 指标 | Mode A | Mode B |
+|------|--------|--------|
+| DD 变量数 | N | 2N |
+| 内存开销 | 低 | 高（指数级更大） |
+| 时间开销 | 低 | 高（通常 10-100× Mode A） |
+| 适用 N 上限 | 无限制（受时间限制） | 实际 ≤6 |
+| 保真度语义 | $\langle\psi|\rho|\psi\rangle$ | $\text{Tr}(\rho_{\text{true}}\rho_{\text{recon}})$ |
+| 本实验是否使用 | ✅ 主要指标 | ⚠️ 仅小规模参考 |
+
+#### 层析策略选择
+
+| 量子比特数 N | 测量基策略 | 说明 |
+|-------------|-----------|------|
+| N ≤ 4 | **完整层析**（$3^N$ 个 Pauli 基） | 约束方程完备，MLE 有唯一解 |
+| N ≥ 5 | **局部层析**（随机抽取 50–100 个基） | 欠定，但可近似重建；`nM < 3^N` 时自动进入此模式 |
+
+当传入 `nMeasBases >= 3^N` 时，程序自动枚举全部 Pauli 基（完整层析）；否则随机抽取（局部层析），并在输出中注明：
+
+```
+Using all 27 Pauli bases (complete tomography)   ← 完整层析
+Using 50 random bases (partial tomography, need >= 243 for completeness)  ← 局部层析
+```
+
+### 本次实验使用 Mode A
 
 ---
 
-## 3. 修复的主要问题
+## 3. 核心概念解释
+
+### 3.1 密度矩阵 $\rho$ 是什么？
+
+量子态有两种等价描述：
+
+- **纯态向量** $|\psi\rangle$：描述"确定的量子态"，是一个 $2^N$ 维复数向量
+- **密度矩阵** $\rho = |\psi\rangle\langle\psi|$：更通用的表示，是一个 $2^N \times 2^N$ 的复数矩阵
+
+对于 $N$ 个量子比特，$\rho$ 满足三个约束：
+- 迹为 1：$\text{Tr}(\rho) = 1$（概率归一）
+- 半正定：所有特征值 $\geq 0$（物理可实现性）
+- 厄米：$\rho = \rho^\dagger$（可观测量为实数）
+
+密度矩阵的自由度为 $4^N - 1$（去掉迹归一约束）。**QST 的目标就是从测量数据重建这个矩阵。**
+
+在本项目中，$\rho$ 用 QMDD 决策图紧凑表示，代码中记为 `rho`（一个 `dd::Edge`）。
+
+---
+
+### 3.2 投影算子（Projector）$\Pi_{b,s}$ 是什么？
+
+量子测量的数学本质是投影。对于测量设置 $(b, s)$（Pauli 基 $b$，比特串结果 $s$），对应一个 $2^N \times 2^N$ 的投影矩阵 $\Pi_{b,s}$，满足 $\Pi^2 = \Pi$（幂等性）。
+
+**单量子比特示例：**
+
+| 基 | 结果 | 投影算子 |
+|----|------|---------|
+| Z 基 | $\|0\rangle$ | $\begin{pmatrix}1&0\\0&0\end{pmatrix}$ |
+| Z 基 | $\|1\rangle$ | $\begin{pmatrix}0&0\\0&1\end{pmatrix}$ |
+| X 基 | $\|+\rangle$ | $\frac{1}{2}\begin{pmatrix}1&1\\1&1\end{pmatrix}$ |
+| X 基 | $\|-\rangle$ | $\frac{1}{2}\begin{pmatrix}1&-1\\-1&1\end{pmatrix}$ |
+
+**Born 定理**：测量结果 $(b,s)$ 出现的概率为：
+$$p(b,s) = \text{Tr}(\Pi_{b,s} \cdot \rho)$$
+
+这是整个 QST 的数学基础——**通过测量到的概率 $p(b,s)$ 反推 $\rho$**。
+
+在代码中，每个 $(b,s)$ 对应一个 `dd::Edge proj`（投影矩阵 DD），全部存储在 `projs` 向量中。
+
+---
+
+### 3.3 MLE 是什么？为什么用迭代？
+
+**MLE（最大似然估计）**：在所有满足物理约束的密度矩阵中，找到使观测数据出现概率最大的那个 $\rho$。
+
+设观测到测量 $(b_k, s_k)$ 的频率为 $f_k$（由 Born 定理计算），最大化对数似然函数：
+
+$$\mathcal{L}(\rho) = \sum_k f_k \log p_k(\rho) = \sum_k f_k \log \underbrace{\text{Tr}(\Pi_k \rho)}_{\text{DD矩阵乘法+trace}}$$
+
+这是一个**约束优化问题**（$\rho$ 必须半正定且迹为 1），没有解析解，因此用迭代算法求解。
+
+### 3.4 具体用的是哪种 MLE 算法？
+
+本项目用 **$R\rho R$ 迭代**（Diluted MLE / R-matrix iteration）：
+
+**第 $t$ 轮迭代：**
+
+$$R^{(t)} = \sum_k \underbrace{\frac{f_k}{p_k^{(t)}}}_{\text{修正权重}} \Pi_k \quad \text{（权重矩阵）}$$
+
+$$\rho^{(t+1)} = \frac{R^{(t)} \rho^{(t)} R^{(t)}}{\text{Tr}\!\left(R^{(t)} \rho^{(t)} R^{(t)}\right)} \quad \text{（归一化更新）}$$
+
+**为什么这样设计？**
+
+| 情况 | 权重 $f_k/p_k$ | 效果 |
+|------|--------------|------|
+| $p_k$ 远小于 $f_k$（预测不足） | 权重大 | $R$ 在该方向放大，推动 $\rho$ 解释这个测量 |
+| $p_k$ 远大于 $f_k$（过度预测） | 权重小 | 抑制该方向 |
+| $p_k = f_k$（完美匹配） | 权重 = 1 | 不变化，已收敛 |
+
+**$R\rho R$ 结构的关键优势**：自动保持 $\rho$ 的半正定性。若 $\rho^{(t)}$ 半正定，则 $R\rho R$ 也是半正定（$R$ 是实对称矩阵），无需额外投影。直接梯度下降会违反物理约束。
+
+**每轮迭代的计算量**：需要对所有 `ValidBases` 个 projector 计算 $p_k = \text{Tr}(\Pi_k \rho)$，每次都是一次 DD 矩阵乘法。这就是为什么 projector 数量（即 `ValidBases`）是时间复杂度的决定因素。
+
+---
+
+### 3.5 为什么 Sifting 不能在 MLE 迭代中途做？
+
+**Sifting** 对 QMDD 的变量顺序做重排，例如把 qubit 顺序从 (q0, q1, q2) 改为 (q2, q0, q1)，让 DD 节点数更少。
+
+但 $\text{Tr}(\Pi_k \rho)$ 的计算要求 $\Pi_k$ 和 $\rho$ 的**变量编号对应同一个物理 qubit**。
+
+若迭代中途对 $\rho$ 做 sifting（变量 0 变为物理 qubit 2），而 $\Pi_k$ 仍是原来顺序（变量 0 = 物理 qubit 0），则 $\text{Tr}(\Pi_k \rho)$ 计算出的是错误的概率，MLE 朝着错误方向收敛。
+
+要在迭代中使用 Sifting，必须**同时对 $\rho$ 和所有 $\Pi_k$ 施加相同的变量置换**（Synchronous Sifting），这是目前未实现的优化方向。
+
+---
+
+### 3.6 完整层析 vs 局部层析
+
+| 对比维度 | 完整层析（Complete） | 局部层析（Partial） |
+|---------|---------------------|-------------------|
+| 测量基数量 | $3^N$（全部 Pauli 基） | $k \ll 3^N$（随机抽取） |
+| 每基 outcomes | $2^N$（全部枚举） | $2^N$（全部枚举） |
+| 总 projector 数 | $6^N$ | $k \times 2^N$ |
+| 约束方程 | 完备（MLE 有唯一解） | 欠定（可能局部极值） |
+| 保真度上限 | 理论 1.0 | 依赖 $k$ 和态的稀疏性 |
+| 适用 N | ≤4（实际）, ≤5（可接受） | ≥5 |
+| 脚本参数 | `--tomo complete` | `--tomo partial --bases <k>` |
+
+注：即使在局部层析下，程序也会对每个抽到的基枚举所有 $2^N$ 个 outcome，这与原始实现（每个基只用一个随机 outcome）相比，是更正确的 QST 流程。
+
+---
+
+## 4. 修复的主要问题
 
 | 问题 | 位置 | 修复方式 |
 |------|------|---------|
@@ -40,7 +190,7 @@
 
 ---
 
-## 4. 运行命令
+## 5. 运行命令
 
 ### 编译
 
@@ -102,9 +252,9 @@ done
 
 ---
 
-## 5. 实验结果
+## 6. 实验结果
 
-### 5.1 参数配置
+### 8.1 参数配置
 
 | 参数 | 值 |
 |------|----|
@@ -114,7 +264,7 @@ done
 | 单电路超时 | 600 s |
 | 随机种子 | 42 |
 
-### 5.2 分电路结果（Mode A，7 策略均值）
+### 8.2 分电路结果（Mode A，7 策略均值）
 
 | 电路 | N | 总基数 | 有效基数 | 最优 F | 平均 F | 最优策略 | 时间范围 (ms) |
 |------|---|--------|---------|--------|--------|---------|--------------|
@@ -131,7 +281,7 @@ done
 
 > **有效基数** = 满足 $p(b,s) = \langle\psi|\Pi_{b,s}|\psi\rangle > 10^{-10}$ 的 (基, outcome) 对数量。
 
-### 5.3 保真度分布（70 条策略×电路结果）
+### 8.3 保真度分布（70 条策略×电路结果）
 
 | 区间 | 数量 | 占比 |
 |------|------|------|
@@ -140,7 +290,7 @@ done
 | 中等 $0.4 \leq F < 0.7$ | 26 | 37.1% |
 | 低精度 $F < 0.4$ | 1 | 1.4% |
 
-### 5.4 策略对比
+### 8.4 策略对比
 
 | 策略 | 样本数 | 平均 F | F≥0.999 | F≥0.7 |
 |------|--------|--------|---------|-------|
@@ -154,7 +304,7 @@ done
 
 ---
 
-## 6. 分析与结论
+## 7. 分析与结论
 
 ### 6.1 有效基比例是保真度的关键因子
 
@@ -188,7 +338,100 @@ done
 
 ---
 
-## 7. 结果文件
+## 8. Sifting 在 QST 中的作用分析
+
+### 7.1 Sifting 作用于 QST 流程的哪些位置？
+
+在当前实现中，Sifting 作用于 **MLE 完成之后、保真度计算之后** 的一次性 DD 压缩步骤：
+
+```
+buildFunctionality → |ψ⟩ → 构建 projectors → MLE 迭代 → [计算 Fidelity] → [Sifting] → 记录 RhoSize/PeakDD
+```
+
+**不在 MLE 迭代过程中做 Sifting**，原因是：
+- MLE 每轮迭代需要 rho 与 projectors 处于相同的变量顺序
+- 若在迭代中途对 rho 做 sifting（改变变量映射），而 projectors 未同步重排，则后续 `Tr(rho × proj)` 计算出错误概率，MLE 向错误方向收敛
+
+因此当前 Sifting 只作为**实验性的 DD 压缩工具**，测量其对最终 rho 节点数和峰值内存的影响。
+
+### 7.2 Sifting 带来了哪些实际提升？
+
+从实验数据可以观察到：
+
+| 电路 | NoReorder RhoSize | 最优 Sifting RhoSize | 压缩比 |
+|------|-------------------|---------------------|--------|
+| `decod24-v1_41`（4Q） | 86 | 22（Sift/LBSift/IGSift） | **3.9×** |
+| `mini-alu_167`（4Q） | 56 | 22（多策略） | **2.5×** |
+| `mod10_176`（4Q） | 22 | 22（无差异） | 1.0× |
+
+**关键观察**：
+- 部分电路 Sifting 可带来 2-4× 的 DD 节点压缩（内存收益明显）
+- 另一部分电路（`mod10_176`、`fredkin_6` 等）无论何种策略 RhoSize 相同，说明这些电路的密度矩阵 DD 结构天然紧凑，对变量顺序不敏感
+
+### 7.3 Sifting 对 QST 结果（保真度）有无改善？
+
+从理论上说，**MLE 完成后的 Sifting 不改变密度矩阵的数学内容**，只改变 DD 的内部表示。因此：
+- 保真度 $F$ 理论上不受 MLE 后 Sifting 影响
+- 但实验数据中不同策略的保真度有差异，原因是 **DD package 的 complex number table 为全局共享状态**，不同策略顺序调用时 cn table 的残留状态会影响后续计算，导致不同策略在相同测量数据下 MLE 收敛到略有不同的局部极值
+
+这一差异是实现层面的数值问题，而非 Sifting 算法本身对保真度的贡献。
+
+### 7.4 Sifting 还有哪些地方可以用？
+
+| 潜在应用点 | 说明 | 预期收益 |
+|-----------|------|---------|
+| **Projector 构建时** | 对每个 $\Pi_{b,s}$ 做 sifting，减少 projector 存储 | 节省内存，但 N 个 projector 同时 sift 会引入变量不一致 |
+| **MLE 中间 checkpoint** | 每 K 轮对 rho+projectors 同步重排 | 可能改善大 N 时的内存峰值，但实现复杂 |
+| **初始 rho 构建时** | 对最大混合态 $I/2^N$ 预先 sift（意义不大，结构已最简） | 基本无收益 |
+| **最终 rho 压缩（当前）** | ✅ 已实现，用于测量 DD 压缩效果 | 2-4× 内存减少 |
+
+**最有价值的未实现方向**：在 MLE 迭代中对 rho **和** 所有 projectors 做**同步变量重排**（Synchronous Sifting）。这需要在重排 rho 的同时用相同的变量置换更新所有 projector，是技术上可行但实现复杂的优化。
+
+### 8.5 使用 Sifting 是否有意义？
+
+**有意义，但主要体现在空间而非精度上**：
+
+- ✅ **内存峰值降低**：`decod24-v1_41` 4Q 电路，Sifting 后 PeakDD 从 971 降至 916（-5.7%）
+- ✅ **最终 rho 大小减少**：部分电路压缩比达 4×，对后续分析、存储密度矩阵有价值
+- ⚠️ **时间不一定减少**：Sifting 操作本身有开销，小电路可能得不偿失（`hwb4_49` Sift 比 NoReorder 慢 3×）
+- ❌ **保真度无直接改善**：MLE 后 sifting 不影响数学内容
+
+**建议**：对于关注 QMDD 空间效率的研究，Sifting 在 QST 中的意义主要是**展示密度矩阵的紧凑性**，验证 Sifting 算法对实际量子态密度矩阵的压缩效果，作为 QMDD 上层应用的基准测试场景。
+
+---
+
+## 9. run_qst.sh 参数速查
+
+```bash
+bash test/run_qst.sh \
+    --output <输出CSV>        # 必需，追加模式（自动写表头）
+    --rounds <轮次>           # 必需，多轮取平均
+    --circuit <电路文件>      # 必需，.real/.qasm
+
+    --tomo   complete|partial|auto   # 层析类型（默认auto: N<=4完整, N>=5局部）
+    --bases  <数字>|auto             # 测量基数量（auto时: complete=3^N, partial=50）
+    --iters  <数字>|auto             # MLE迭代次数（auto: N<=4用50, N>=5用30）
+    --mode-b 0|1|auto                # Mode B (auto: N<=5启用, N>=6禁用)
+
+    --strategy all|NoReorder|Sift|LBSift|IGSift|IGLBSift|GrpSift|IGGrpSift
+    --timeout  <秒>           # 单轮超时，超时记 "-"（默认300）
+    --memory   <MB>           # 内存限制（默认10000=10GB）
+    --qst-bin  <路径>         # 可执行文件（默认自动编译）
+```
+
+**各量子比特规模推荐参数：**
+
+| N | --tomo | --bases | --iters | --mode-b | 估计时间/电路 |
+|---|--------|---------|---------|----------|-------------|
+| ≤4 | auto（complete） | auto（=3^N） | auto（50） | auto（1） | <1min |
+| 5 | complete（若愿等）或 partial | 243 或 50 | 30 | 0 | 5–30min |
+| 6–7 | partial | 50–100 | 20–30 | 0 | 1–10min |
+| 8+ | partial | 30–50 | 10–20 | 0 | 依电路而定 |
+
+---
+
+## 10. 结果文件
+
 
 | 文件 | 内容 |
 |------|------|

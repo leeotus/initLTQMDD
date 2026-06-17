@@ -150,9 +150,21 @@ static dd::Edge runMLE(
     dd::DynamicReorderingStrategy strat,
     map<unsigned short,unsigned short>& vm,
     dd::InteractionGraph& ig,
-    unsigned& peakDD)
+    unsigned& peakDD,
+    int syncInterval  = 0,  // 每隔 N 轮触发一次重排（0=关闭）
+    int syncThreshold = 0)  // rho DD 节点数超过此值时触发重排（0=关闭）
+                            // 两个条件满足任一即触发，均为 0 则不做同步重排
 {
     for (int iter = 0; iter < nIter; ++iter) {
+        // ---- 同步重排触发判断 ----
+        // 条件1: 按轮次间隔（iter>0 避免首轮未初始化）
+        bool byInterval  = (syncInterval  > 0) && (iter > 0) && (iter % syncInterval == 0);
+        // 条件2: rho DD 节点数超过阈值
+        bool byThreshold = (syncThreshold > 0) && ((int)pkg->size(rho) > syncThreshold);
+        if ((byInterval || byThreshold) && strat != dd::None) {
+            rho = applySifting(pkg, rho, strat, vm, ig);
+        }
+
         // Build R
         dd::Edge R = dd::Package::DDzero;
         pkg->incRef(R);
@@ -191,7 +203,6 @@ static dd::Edge runMLE(
         // Normalize: ρ' = ρ' / Tr(ρ')
         dd::ComplexValue trv = pkg->trace(R_rhoR);
         double tr_val = trv.r;
-        // Stop if trace is invalid (NaN/Inf/negative/overflow) — numerics diverged
         if (!isfinite(tr_val) || tr_val <= 0.0 || tr_val > 1e20) {
             pkg->decRef(R_rhoR);
             pkg->decRef(R);
@@ -200,8 +211,6 @@ static dd::Edge runMLE(
         }
         double inv = 1.0 / tr_val;
 
-        // scaleDD: creates new edge (same node, new root weight), incRef'd
-        // Then decRef R_rhoR: node.ref 2→1, old weight ref--
         dd::Edge rhoN = scaleDD(pkg, R_rhoR, inv);
         pkg->decRef(R_rhoR);
 
@@ -247,7 +256,9 @@ static RunResult runModeA(
     unique_ptr<qc::QuantumComputation>& qc,
     const vector<pair<vector<qc::QST::MeasurementBasis::Basis>, vector<int>>>& basisSeq,
     const vector<double>& freqs,
-    int N, int nIter, dd::DynamicReorderingStrategy strat)
+    int N, int nIter, dd::DynamicReorderingStrategy strat,
+    int syncInterval  = 0,
+    int syncThreshold = 0)
 {
     RunResult res{};
     auto pkg = make_unique<dd::Package>();
@@ -286,7 +297,7 @@ static RunResult runModeA(
     unsigned peakDD = 0;
     auto t0 = high_resolution_clock::now();
 
-    rho = runMLE(pkg, rho, projs, N, nIter, strat, vm, ig, peakDD);
+    rho = runMLE(pkg, rho, projs, N, nIter, strat, vm, ig, peakDD, syncInterval, syncThreshold);
 
     auto t1 = high_resolution_clock::now();
 
@@ -433,7 +444,10 @@ static RunResult runModeB(
 // ============================================================
 int main(int argc, char** argv) {
     if (argc < 2) {
-        cerr << "Usage: ./qst <circuit_file> [nMeasBases] [nIterations]\n";
+        cerr << "Usage: ./qst <circuit_file> [nMeasBases] [nIterations] [modeB=1] [syncInterval=0] [syncThreshold=0]\n"
+             << "  syncInterval : trigger sync sifting every N MLE iters (0=off)\n"
+             << "  syncThreshold: trigger sync sifting when rho DD nodes > N (0=off)\n"
+             << "  Both conditions are OR'd; both 0 means no sync reordering.\n";
         return 1;
     }
 
@@ -441,12 +455,17 @@ int main(int argc, char** argv) {
     int nM      = (argc > 2) ? atoi(argv[2]) : 10;
     int nIter   = (argc > 3) ? atoi(argv[3]) : 50;
     bool runModeB_flag = (argc > 4) ? (atoi(argv[4]) != 0) : true;
+    // syncInterval:  每隔 N 轮触发同步重排（0=关闭）
+    int syncInterval  = (argc > 5) ? atoi(argv[5]) : 0;
+    // syncThreshold: rho DD 节点数超过此值时触发同步重排（0=关闭）
+    int syncThreshold = (argc > 6) ? atoi(argv[6]) : 0;
 
     auto qc = make_unique<qc::QuantumComputation>(cf);
     int N = (int)qc->getNqubits();
 
     cout << "\n=== QST: " << qc->getName() << " | N=" << N
-         << " | bases=" << nM << " | iter=" << nIter << " ===\n\n";
+         << " | bases=" << nM << " | iter=" << nIter
+         << " | sync=(" << syncInterval << "/" << syncThreshold << ") ===\n\n";
 
     // Generate Pauli bases.
     // If nM >= 3^N, enumerate all 3^N Pauli bases (complete tomography).
@@ -549,7 +568,7 @@ int main(int argc, char** argv) {
     // === Mode A ===
     printHeader("Mode A: N-var rho, F=<psi|rho|psi>");
     for(int s=0;s<NSTRATS;++s){
-        auto r = runModeA(qc, validSeq, freqsA, N, nIter, STRATS[s]);
+        auto r = runModeA(qc, validSeq, freqsA, N, nIter, STRATS[s], syncInterval, syncThreshold);
         printRow(NAMES[s], r);
         csv << NAMES[s] << "," << r.fidelity << "," << r.traceDistance << ","
             << r.rhoSize << "," << r.peakDD << "," << r.timeMs << "\n";

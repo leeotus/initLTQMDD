@@ -1,0 +1,587 @@
+\documentclass[12pt, a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{fontspec}
+\usepackage{xeCJK}
+\setCJKmainfont{AR PL UMing CN}
+\setCJKsansfont{Droid Sans Fallback}
+
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{mathtools}
+\usepackage{bm}
+\usepackage{physics}
+\usepackage{braket}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{listings}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{tikz}
+
+\geometry{
+    top=2.5cm, bottom=2.5cm,
+    left=2.8cm, right=2.8cm
+}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!70!black,
+    citecolor=green!50!black,
+    urlcolor=blue
+}
+
+\definecolor{codebg}{RGB}{248,248,248}
+\definecolor{codecomment}{RGB}{100,100,100}
+\lstset{
+    backgroundcolor=\color{codebg},
+    basicstyle=\ttfamily\small,
+    commentstyle=\color{codecomment}\itshape,
+    frame=single,
+    breaklines=true,
+    tabsize=2,
+}
+
+\algnewcommand\algorithmicinput{\textbf{Input:}}
+\algnewcommand\algorithmicoutput{\textbf{Output:}}
+\algnewcommand\Input{\item[\algorithmicinput]}
+\algnewcommand\Output{\item[\algorithmicoutput]}
+
+\newtheorem{definition}{定义}
+\newtheorem{theorem}{定理}
+\newtheorem{proposition}{命题}
+\newtheorem{remark}{注}
+
+\title{%
+    \vspace{-1cm}
+    \textbf{量子态层析（QST）理论文档} \\[0.5em]
+    \large 概念、定义、用途与算法伪代码 \\[0.5em]
+    \normalsize 项目：initLTQMDD — QMDD 上层应用实验
+}
+\author{initLTQMDD 项目}
+\date{2026 年 6 月}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+% ==============================================================
+\section{量子态层析（QST）概述}
+% ==============================================================
+
+量子态层析（Quantum State Tomography，QST）是量子信息领域中用于
+\textbf{完整重建量子系统状态}的实验方法。其核心思想为：通过对大量
+相同量子态副本在不同测量基下进行测量，利用统计分析从测量数据中推断出
+系统的完整量子态描述——密度矩阵 $\rho$。
+
+QST 的工作原理可概括为三步：
+\begin{enumerate}
+    \item 反复制备相同的量子态；
+    \item 在不同的 Pauli 基（X、Y、Z 轴）下进行测量，收集统计结果；
+    \item 用最大似然估计（MLE）重建密度矩阵。
+\end{enumerate}
+
+% ==============================================================
+\section{核心数学定义}
+% ==============================================================
+
+\subsection{密度矩阵}
+
+\begin{definition}[密度矩阵]
+对于 $N$ 量子比特系统，量子态由\textbf{密度矩阵} $\rho$ 描述：
+\[
+    \rho \in \mathbb{C}^{2^N \times 2^N}
+\]
+满足三个物理约束：
+\begin{align}
+    &\mathrm{Tr}(\rho) = 1 \tag{归一性} \\
+    &\rho = \rho^\dagger \tag{厄米性} \\
+    &\rho \succeq 0 \tag{半正定性}
+\end{align}
+\end{definition}
+
+密度矩阵的自由度为 $4^N - 1$（厄米性使独立实参数减半，再减去迹归一约束）。
+
+对于纯态 $\ket{\psi}$，密度矩阵退化为秩一投影：
+\[
+    \rho = \ket{\psi}\!\bra{\psi}
+\]
+
+\subsection{Pauli 算符基}
+
+$N$ 量子比特系统的测量基由 Pauli 算符的张量积构成。
+单量子比特 Pauli 矩阵为：
+\[
+    \sigma_X = \begin{pmatrix}0 & 1 \\ 1 & 0\end{pmatrix},\quad
+    \sigma_Y = \begin{pmatrix}0 & -i \\ i & 0\end{pmatrix},\quad
+    \sigma_Z = \begin{pmatrix}1 & 0 \\ 0 & -1\end{pmatrix}
+\]
+
+$N$ 量子比特的 Pauli 基元素为：
+\[
+    P_{b_1 b_2 \cdots b_N}
+    = \sigma_{b_1} \otimes \sigma_{b_2} \otimes \cdots \otimes \sigma_{b_N},
+    \quad b_i \in \{X, Y, Z\}
+\]
+共 $3^N$ 个独立测量基。完整层析需要枚举全部 $3^N$ 个基。
+
+\subsection{投影测量与 Born 定理}
+
+对于 Pauli 基 $b = (b_1, \ldots, b_N)$ 和比特串结果
+$s = (s_1, \ldots, s_N) \in \{0,1\}^N$，对应的\textbf{投影算子}为：
+\[
+    \Pi_{b,s} = \bigotimes_{i=1}^{N} \Pi_{b_i, s_i}^{(1)}
+\]
+
+单量子比特投影算子的显式矩阵形式：
+\begin{align}
+    \Pi_{Z,0} &= \ket{0}\!\bra{0} = \begin{pmatrix}1&0\\0&0\end{pmatrix},&
+    \Pi_{Z,1} &= \ket{1}\!\bra{1} = \begin{pmatrix}0&0\\0&1\end{pmatrix}
+    \\[6pt]
+    \Pi_{X,0} &= \ket{+}\!\bra{+} = \frac{1}{2}\begin{pmatrix}1&1\\1&1\end{pmatrix},&
+    \Pi_{X,1} &= \ket{-}\!\bra{-} = \frac{1}{2}\begin{pmatrix}1&-1\\-1&1\end{pmatrix}
+    \\[6pt]
+    \Pi_{Y,0} &= \frac{1}{2}\begin{pmatrix}1&-i\\i&1\end{pmatrix},&
+    \Pi_{Y,1} &= \frac{1}{2}\begin{pmatrix}1&i\\-i&1\end{pmatrix}
+\end{align}
+
+满足完备性 $\Pi_{b,0} + \Pi_{b,1} = I$ 以及幂等性 $\Pi_{b,s}^2 = \Pi_{b,s}$。
+
+\begin{theorem}[Born 定理]
+测量结果 $(b, s)$ 出现的概率为：
+\[
+    p(b,s) = \mathrm{Tr}\!\left(\Pi_{b,s}\,\rho\right)
+\]
+\end{theorem}
+
+\subsection{QST 的逆问题}
+
+\begin{definition}[QST 逆问题]
+给定 $K$ 个测量 $\{(\Pi_k, f_k)\}_{k=1}^K$（$f_k$ 为观测频率），
+求密度矩阵 $\rho$ 满足：
+\[
+    f_k \approx p_k(\rho) = \mathrm{Tr}(\Pi_k\,\rho),
+    \quad k = 1, \ldots, K
+\]
+约束：$\rho \succeq 0$，$\mathrm{Tr}(\rho) = 1$，$\rho = \rho^\dagger$。
+\end{definition}
+
+\begin{remark}
+当 $K \geq 4^N - 1$ 且测量集合完备时，方程有唯一解（完整层析）；
+当 $K < 4^N - 1$ 时系统欠定（局部层析），需引入额外假设（如低秩性）。
+\end{remark}
+
+% ==============================================================
+\section{最大似然估计（MLE）}
+% ==============================================================
+
+\subsection{目标函数}
+
+最大似然估计在所有物理可行密度矩阵中，最大化对数似然函数：
+
+\[
+    \hat{\rho} = \arg\max_{\substack{\rho \succeq 0 \\ \mathrm{Tr}(\rho)=1}}
+    \mathcal{L}(\rho),
+    \qquad
+    \mathcal{L}(\rho) = \sum_{k=1}^{K} f_k \log p_k(\rho)
+\]
+
+这等价于最小化观测分布与理论分布之间的 KL 散度：
+\[
+    D_{\mathrm{KL}}(f \,\|\, p(\rho))
+    = \sum_k f_k \log\frac{f_k}{p_k(\rho)}
+\]
+
+\subsection{\texorpdfstring{$R\rho R$}{RρR} 迭代算法}
+
+由于密度矩阵的半正定约束，直接梯度下降会破坏物理性质。
+本项目采用 \textbf{$R\rho R$ 迭代}（Hradil 1997 \cite{hradil1997}），
+每步自动保持半正定性。
+
+\begin{definition}[$R$ 算子]
+给定当前估计 $\rho^{(t)}$，定义权重矩阵：
+\[
+    R^{(t)} = \sum_{k=1}^{K}
+    \underbrace{\frac{f_k}{p_k^{(t)}}}_{\text{修正权重}}
+    \Pi_k,
+    \qquad
+    p_k^{(t)} = \mathrm{Tr}\!\left(\Pi_k\,\rho^{(t)}\right)
+\]
+\end{definition}
+
+\textbf{迭代更新公式：}
+\[
+    \boxed{
+        \rho^{(t+1)} = \frac{R^{(t)}\,\rho^{(t)}\,R^{(t)}}
+        {\mathrm{Tr}\!\left(R^{(t)}\,\rho^{(t)}\,R^{(t)}\right)}
+    }
+\]
+
+\begin{proposition}[半正定不变性]
+若 $\rho^{(0)} \succ 0$，则对所有 $t \geq 0$，$\rho^{(t)} \succ 0$。
+\end{proposition}
+
+\textbf{修正权重的直观含义：}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+条件 & 权重 $f_k/p_k$ & 效果 \\
+\midrule
+$p_k \ll f_k$（预测不足） & 大 & 推动 $\rho$ 提升对该测量的预测概率 \\
+$p_k \gg f_k$（过度预测） & 小 & 抑制该方向 \\
+$p_k = f_k$（完美匹配） & 1 & 无变化，已收敛 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{计算复杂度}
+
+每轮迭代的主要开销：
+
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+操作 & 次数 & 单次代价 & 说明 \\
+\midrule
+$\mathrm{Tr}(\Pi_k\,\rho)$ & $K$ & DD 矩阵乘法 + trace & 瓶颈操作 \\
+$R \mathrel{+}= w_k \Pi_k$ & $K$ & DD 加法 & 累加 \\
+$R\rho R$ & 2 & DD 矩阵乘法 & \\
+归一化 & 1 & trace + 标量乘法 & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+总时间复杂度：$O(T \cdot K \cdot C_{\mathrm{DD}})$，其中 $T$ 为迭代次数，
+$K = \mathrm{ValidBases}$，$C_{\mathrm{DD}}$ 为单次 DD 矩阵乘法代价。
+
+由于 $K = O(6^N)$（完整层析），QST 的时间复杂度随量子比特数指数增长，
+这正是 `request.md` 中指出的\textbf{时间复杂度而非空间复杂度}为瓶颈的根源。
+
+% ==============================================================
+\section{保真度与迹距离}
+% ==============================================================
+
+\subsection{保真度}
+
+\begin{definition}[保真度]
+对纯态 $\ket{\psi}$ 和重建密度矩阵 $\rho_{\mathrm{recon}}$：
+\[
+    F = \bra{\psi}\,\rho_{\mathrm{recon}}\,\ket{\psi}
+      = \mathrm{Tr}\!\left(\ket{\psi}\!\bra{\psi}\,\rho_{\mathrm{recon}}\right)
+\]
+满足 $F \in [0, 1]$，且 $F = 1 \Leftrightarrow \rho_{\mathrm{recon}} = \ket{\psi}\!\bra{\psi}$。
+\end{definition}
+
+\subsection{迹距离}
+
+本实现中迹距离采用近似公式：
+\[
+    D \approx \sqrt{1 - F}
+\]
+
+严格定义为：
+\[
+    D(\rho_1, \rho_2)
+    = \frac{1}{2}\,\mathrm{Tr}\!\left|\rho_1 - \rho_2\right|
+    = \frac{1}{2}\,\mathrm{Tr}\!\sqrt{(\rho_1 - \rho_2)^\dagger(\rho_1 - \rho_2)}
+\]
+
+对纯态情形，$D = \sqrt{1 - F}$ 精确成立（Fuchs-van de Graaf 不等式的等号条件）。
+
+% ==============================================================
+\section{项目算法伪代码}
+% ==============================================================
+
+\subsection{主流程}
+
+\begin{algorithm}[H]
+\caption{QST-QMDD：量子态层析主流程}
+\begin{algorithmic}[1]
+\Input{量子电路 $C$，测量基数 $n_{\mathrm{bases}}$，
+       迭代次数 $T$，策略 $\sigma$，
+       同步间隔 $\tau_I$，同步阈值 $\tau_N$}
+\Output{CSV 结果（保真度、RhoSize、PeakDD、时间）}
+
+\State $U \leftarrow \texttt{buildFunctionality}(C)$
+\State $\ket{\psi} \leftarrow U\,\ket{0}^{\otimes N}$
+
+\If{$n_{\mathrm{bases}} \geq 3^N$}
+    \State 枚举全部 $3^N$ 个 Pauli 基 $\mathcal{B}$
+    \quad\textit{// 完整层析}
+\Else
+    \State 随机抽取 $n_{\mathrm{bases}}$ 个 Pauli 基 $\mathcal{B}$
+    \quad\textit{// 局部层析}
+\EndIf
+
+\State $M \leftarrow \emptyset$
+\For{每个基 $b \in \mathcal{B}$，每个比特串 $s \in \{0,1\}^N$}
+    \State $f_{b,s} \leftarrow \bra{\psi}\Pi_{b,s}\ket{\psi}$
+    \If{$f_{b,s} > 10^{-10}$}
+        \State $M \leftarrow M \cup \{(\Pi_{b,s},\, f_{b,s})\}$
+    \EndIf
+\EndFor
+\State 归一化：$f_k \leftarrow f_k \;/\; \sum_j f_j$
+
+\For{每种 Sifting 策略 $\sigma$}
+    \State $\rho \leftarrow \texttt{MLE-RhoR}(M, T, \sigma, \tau_I, \tau_N)$
+    \State $F \leftarrow \bra{\psi}\rho\ket{\psi}$
+    \State 写入 CSV：$(F,\; \text{RhoSize},\; \text{PeakDD},\; \text{时间})$
+\EndFor
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{\texorpdfstring{MLE $R\rho R$ 迭代（含同步重排）}{MLE RρR 迭代（含同步重排）}}
+
+\begin{algorithm}[H]
+\caption{MLE-RhoR：$R\rho R$ 迭代算法（含同步重排）}
+\begin{algorithmic}[1]
+\Input{测量集合 $M = \{(\Pi_k, f_k)\}$，迭代次数 $T$，策略 $\sigma$，
+       轮次触发间隔 $\tau_I$，节点数触发阈值 $\tau_N$}
+\Output{重建密度矩阵 $\rho$（QMDD 表示）}
+
+\State $\rho \leftarrow I_{2^N} \;/\; 2^N$
+    \quad\textit{// 初始化为最大混合态}
+
+\For{$t = 0, 1, \ldots, T-1$}
+
+    \State \textit{// ── 同步重排触发判断 ──}
+    \State $b_I \leftarrow (\tau_I > 0) \;\wedge\; (t > 0) \;\wedge\; (t \bmod \tau_I = 0)$
+    \State $b_N \leftarrow (\tau_N > 0) \;\wedge\; (|\rho|_{\mathrm{DD}} > \tau_N)$
+    \If{$(b_I \;\vee\; b_N) \;\wedge\; \sigma \neq \texttt{None}$}
+        \State $\rho \leftarrow \texttt{Sifting}(\rho, \sigma)$
+        \quad\textit{// Unique Table 全局共享，projs 自动同步}
+    \EndIf
+
+    \State \textit{// ── 构建 R 算子 ──}
+    \State $R \leftarrow \mathbf{0}$
+    \For{每个 $(\Pi_k, f_k) \in M$}
+        \State $p_k \leftarrow \max\!\left(\mathrm{Tr}(\Pi_k\,\rho),\; 10^{-12}\right)$
+        \State $w_k \leftarrow \min\!\left(f_k / p_k,\; 10^6\right)$
+        \State $R \leftarrow R + w_k\,\Pi_k$
+    \EndFor
+    \If{$R = \mathbf{0}$} \textbf{break} \EndIf
+
+    \State \textit{// ── 更新 rho ──}
+    \State $\rho' \leftarrow R\,\rho\,R$
+    \State $\tau \leftarrow \mathrm{Tr}(\rho')$
+    \If{$\tau \leq 0 \;\vee\; \tau > 10^{20}$}
+        \textbf{break}
+        \quad\textit{// 数值发散保护}
+    \EndIf
+    \State $\rho \leftarrow \rho' \;/\; \tau$
+    \State $\mathrm{peakDD} \leftarrow \max(\mathrm{peakDD},\; \texttt{pkg.maxActive})$
+
+\EndFor
+
+\State \textit{// ── MLE 完成后做最终 Sifting（测量 DD 压缩效果）──}
+\If{$\sigma \neq \texttt{None}$}
+    \State $\rho \leftarrow \texttt{Sifting}(\rho, \sigma)$
+\EndIf
+\State \Return $\rho$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{投影算子构建}
+
+\begin{algorithm}[H]
+\caption{BuildProjector：构建 $N$ 量子比特投影算子 DD}
+\begin{algorithmic}[1]
+\Input{$N$，Pauli 基向量 $b = (b_1,\ldots,b_N)$，比特串 $s = (s_1,\ldots,s_N)$}
+\Output{$\Pi_{b,s}$ 的 $N$ 变量矩阵 DD}
+
+\State $P \leftarrow I_N$
+    \quad\textit{// $N$ 量子比特单位矩阵 DD}
+\For{$q = 0, 1, \ldots, N-1$}
+    \State 根据 $(b_q, s_q)$ 选择单量子比特投影矩阵 $M_q$：
+    \begin{align*}
+        (Z,0)&:\ \begin{pmatrix}1&0\\0&0\end{pmatrix} &
+        (Z,1)&:\ \begin{pmatrix}0&0\\0&1\end{pmatrix} \\
+        (X,0)&:\ \tfrac{1}{2}\begin{pmatrix}1&1\\1&1\end{pmatrix} &
+        (X,1)&:\ \tfrac{1}{2}\begin{pmatrix}1&-1\\-1&1\end{pmatrix} \\
+        (Y,0)&:\ \tfrac{1}{2}\begin{pmatrix}1&-i\\i&1\end{pmatrix} &
+        (Y,1)&:\ \tfrac{1}{2}\begin{pmatrix}1&i\\-i&1\end{pmatrix}
+    \end{align*}
+    \State $G_q \leftarrow \texttt{makeGateDD}(M_q,\; N,\; \mathrm{target}=q)$
+    \State $P \leftarrow P \cdot G_q$
+\EndFor
+\State \Return $P$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{同步重排机制}
+
+\begin{algorithm}[H]
+\caption{SynchronousReorder：DD 同步变量重排}
+\begin{algorithmic}[1]
+\Input{$\rho$（DD），策略 $\sigma$，变量映射 $\mathrm{vm}$，交互图 $\mathrm{ig}$}
+\Output{重排后的 $\rho$（projs 等所有活跃 DD 自动同步）}
+
+\State \textbf{注：} DD package 的 Unique Table 是 package 级别共享的。
+\State \hphantom{\textbf{注：}} \texttt{exchange2}$(i,j,\mathrm{vm},\rho)$ 对所有引用计数 $>0$ 的 DD 节点
+\State \hphantom{\textbf{注：}} 做变量交换，因此只需对 $\rho$ 调用 Sifting，
+\State \hphantom{\textbf{注：}} $\{\Pi_k\}$ 会自动被同步重排。
+
+\State $\mathrm{prev} \leftarrow |\rho|_{\mathrm{DD}}$
+\For{$p = 1, 2, 3$}
+    \quad\textit{// 最多 3 遍以趋近收敛}
+    \State $\rho \leftarrow \texttt{dynamicReorder}(\rho,\; \mathrm{vm},\; \sigma)$
+    \State $\mathrm{cur} \leftarrow |\rho|_{\mathrm{DD}}$
+    \If{$\mathrm{cur} = \mathrm{prev}$}
+        \textbf{break}
+    \EndIf
+    \State $\mathrm{prev} \leftarrow \mathrm{cur}$
+\EndFor
+\State \Return $\rho$
+\end{algorithmic}
+\end{algorithm}
+
+% ==============================================================
+\section{QST 的用途}
+% ==============================================================
+
+\subsection{量子算法验证}
+
+通过比较实验输出态 $\rho_{\mathrm{exp}}$ 与理论预期态 $\ket{\psi_{\mathrm{ideal}}}$
+的保真度，验证量子算法是否正确执行：
+
+\[
+    F = \bra{\psi_{\mathrm{ideal}}}\,\rho_{\mathrm{exp}}\,\ket{\psi_{\mathrm{ideal}}} \approx 1
+    \;\Rightarrow\; \text{算法正确}
+\]
+
+典型用例：Bell 态制备验证、Grover 搜索算法、量子隐形传态协议。
+
+\subsection{量子硬件校准}
+
+QST 可以暴露量子门的误差模式。低保真度意味着：
+\begin{itemize}
+    \item 量子门操作误差（unitary error）
+    \item 量子比特退相干（decoherence）
+    \item 测量误差（readout error）
+\end{itemize}
+
+\subsection{QMDD 上层实验基准}
+
+本项目的具体目标：以 QST 作为 QMDD 的上层应用，评估不同 Sifting
+变量排序策略对密度矩阵 DD 表示的影响：
+
+\begin{itemize}
+    \item 测量 $\rho_{\mathrm{recon}}$ 的 DD 节点数（RhoSize）$\;\to\;$
+          \textbf{空间效益}
+    \item 测量 MLE 迭代时间（TimeMs）$\;\to\;$
+          \textbf{时间效益}
+    \item 测量保真度（Fidelity）$\;\to\;$
+          \textbf{数值精度影响}
+\end{itemize}
+
+% ==============================================================
+\section{未来工作方向}
+% ==============================================================
+
+\subsection{同步重排优化（已部分实现）}
+
+\textbf{现状：}MLE 完成后做一次 Sifting；可选参数 \texttt{--sync-interval} /
+\texttt{--sync-threshold} 在迭代中途触发。
+
+\textbf{待探索：}
+\begin{itemize}
+    \item 最优触发策略：何时做同步重排收益最大？
+          （节点膨胀率 $\mathrm{d}|\rho|_{\mathrm{DD}}/\mathrm{d}t$
+          vs.\ 重排开销）
+    \item 每次迭代均重排（完全在线模式）的数值稳定性分析
+    \item 不同 Sifting 算法在同步重排场景下的系统比较
+\end{itemize}
+
+\subsection{压缩感知 QST（Compressed Sensing）}
+
+\textbf{动机：}对于稀疏量子态（密度矩阵大多数元素接近 0），可用远少于
+$4^N - 1$ 个测量恢复 $\rho$（RIP 条件满足时）。
+
+\textbf{方向：}将 QMDD 表示的稀疏先验与 $\ell_1$ 正则化 MLE 结合：
+\[
+    \hat{\rho} = \arg\min_{\rho \succeq 0} \left[
+        -\mathcal{L}(\rho) + \lambda \|\rho\|_1
+    \right]
+\]
+对于 QMDD 节点数 $|\rho|_{\mathrm{DD}} \ll 2^{2N}$ 的态，理论上可大幅
+减少所需测量数量。
+
+\subsection{大规模局部层析的 Sifting 效益分析}
+
+\textbf{目标：}系统测试 $N = 5 \sim 10$ 的电路，比较：
+\begin{itemize}
+    \item NoReorder：内存 $O(|\rho|_{\mathrm{NoReorder}})$，无重排开销
+    \item Sifting：内存 $O(|\rho|_{\mathrm{sifted}})$，有重排开销 $O(T_{\mathrm{sift}})$
+\end{itemize}
+
+寻找临界点：当 RhoSize 多大时，Sifting 带来的乘法加速超过重排开销，
+即 $T_{\mathrm{sift}} < (|\rho|_{\mathrm{NoReorder}} - |\rho|_{\mathrm{sifted}}) \cdot C_{\mathrm{mult}}$。
+
+\subsection{基于 DD 结构的自适应测量基选取}
+
+\textbf{动机：}随机选取的 Pauli 基对某些量子态效率很低
+（ValidBases / TotalBases 比例低，如 $<35\%$）。
+
+\textbf{方向：}利用 QMDD 结构信息预判哪些 Pauli 基最"信息量大"，
+定义 Fisher 信息增益：
+\[
+    \mathcal{I}(b) = \sum_{s \in \{0,1\}^N}
+    \frac{1}{p(b,s)} \left(\frac{\partial p(b,s)}{\partial \rho}\right)^2
+\]
+优先选取 $\mathcal{I}(b)$ 大的基，以减少所需测量数量。
+
+\subsection{噪声模型集成}
+
+\textbf{动机：}真实量子硬件输出混合态（噪声态），而非纯态。
+
+\textbf{方向：}在 QST 流程中加入信道噪声模型（去极化噪声、振幅阻尼等），
+重建混合态密度矩阵：
+\[
+    \mathcal{E}(\rho) = (1-p)\,\rho + \frac{p}{3}\left(
+        \sigma_X\rho\sigma_X + \sigma_Y\rho\sigma_Y + \sigma_Z\rho\sigma_Z
+    \right)
+    \quad \text{（去极化信道）}
+\]
+用 $F = \mathrm{Tr}(\rho_{\mathrm{ideal}}\,\rho_{\mathrm{noisy}})$ 评估硬件保真度。
+
+\subsection{Mode B 的实用化}
+
+\textbf{现状：}Mode B（$2N$ 变量密度矩阵）在 $N \geq 6$ 时因变量数
+翻倍而不可行（节点数约为 Mode A 的 $4^N / 2^N = 2^N$ 倍）。
+
+\textbf{方向：}
+\begin{itemize}
+    \item 研究 Mode B 的 DD 是否有特殊稀疏结构可利用
+    \item 探索部分重排（只对 ket 变量 sift，bra 变量不动）是否能降低峰值内存
+    \item 评估 Mode B 在混合态验证场景中的理论优势是否可通过优化实现
+\end{itemize}
+
+% ==============================================================
+\begin{thebibliography}{9}
+\bibitem{hradil1997}
+    Z.~Hradil,
+    \textit{Quantum-state estimation},
+    Phys.\ Rev.\ A \textbf{55}, R1561 (1997).
+
+\bibitem{paris2004}
+    M.~Paris and J.~\v{R}eh\'{a}\v{c}ek (Eds.),
+    \textit{Quantum State Estimation},
+    Lecture Notes in Physics, Springer (2004).
+
+\bibitem{candes2011}
+    E.~J.~Cand\`{e}s and B.~Recht,
+    \textit{Exact matrix completion via convex optimization},
+    Found.\ Comput.\ Math.\ \textbf{9}, 717 (2009).
+\end{thebibliography}
+
+\end{document}
