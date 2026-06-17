@@ -584,4 +584,79 @@ $4^N - 1$ 个测量恢复 $\rho$（RIP 条件满足时）。
     Found.\ Comput.\ Math.\ \textbf{9}, 717 (2009).
 \end{thebibliography}
 
+% ==============================================================
+\appendix
+\section{噪声信道集成}
+% ==============================================================
+
+\subsection{量子噪声信道}
+
+实际量子硬件中的噪声通过\textbf{量子信道}（Quantum Channel）描述，
+数学上表示为一组 \textbf{Kraus 算子} $\{K_k\}$ 对密度矩阵的
+完全正迹保持映射（CPTP map）：
+\[
+    \mathcal{E}(\rho) = \sum_k K_k\,\rho\,K_k^\dagger,
+    \qquad \sum_k K_k^\dagger K_k = I
+\]
+
+\textbf{静态态假设：} QST 中噪声信道只作用一次，生成固定的含噪混合态：
+\[
+    \rho_{\text{noisy}} = \mathcal{E}(|\psi\rangle\langle\psi|)
+\]
+MLE 迭代的是重建变量 $\rho_{\text{recon}}$，噪声在迭代中不变。
+因此含噪电路的 QMDD 只需构建一次，直接进入 QST 链路。
+
+\subsection{三种实现的噪声信道}
+
+\textbf{去极化信道（Depolarizing, D）：}
+\[
+    \mathcal{E}_D(\rho) = (1-p)\rho
+    + \frac{p}{3}(X\rho X + Y\rho Y + Z\rho Z)
+\]
+Kraus 算子：$\sqrt{1-p}\,I$，$\sqrt{p/3}\,X$，$\sqrt{p/3}\,Y$，$\sqrt{p/3}\,Z$
+
+\bigskip
+\textbf{振幅阻尼信道（Amplitude Damping, A）：}
+\[
+    K_0 = \begin{pmatrix}1&0\\0&\sqrt{1-\gamma}\end{pmatrix},
+    \quad
+    K_1 = \begin{pmatrix}0&\sqrt{\gamma}\\0&0\end{pmatrix}
+\]
+模拟能量耗散（$|1\rangle \to |0\rangle$ 自发辐射），$\gamma$ 为跃迁概率。
+
+\bigskip
+\textbf{相位翻转信道（Phase Flip, P）：}
+\[
+    \mathcal{E}_P(\rho) = (1-p)\rho + p\,Z\rho Z
+\]
+Kraus 算子：$\sqrt{1-p}\,I$，$\sqrt{p}\,Z$
+
+\subsection{含噪概率计算（无需显式密度矩阵）}
+
+利用迹的线性性：
+\[
+    p(b,s) = \mathrm{Tr}\!\left(\Pi_{b,s}\,\mathcal{E}(|\psi\rangle\langle\psi|)\right)
+    = \sum_{\mathbf{k}} \langle\psi|\,K_{\mathbf{k}}^\dagger\,\Pi_{b,s}\,K_{\mathbf{k}}\,|\psi\rangle
+\]
+其中 $\mathbf{k} = (k_1,\ldots,k_N)$ 遍历所有 qubit Kraus 分支的组合，
+$K_{\mathbf{k}} = K_{k_1}^{(1)} \otimes \cdots \otimes K_{k_N}^{(N)}$。
+
+实现上通过逐 qubit 展开 Kraus 分支，维护向量集合
+$\{K_{\mathbf{k}}|\psi\rangle\}$，然后对每个分支向量计算内积，
+完全在 $N$ 变量向量空间操作，与现有 MLE 框架兼容。
+
+\subsection{与理想态的距离度量}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+度量 & 公式 & 说明 \\
+\midrule
+保真度 & $F = \bra{\psi}\rho_{\text{noisy}}\ket{\psi}$ & 本项目实现，主要指标 \\
+迹距离 & $D \approx \sqrt{1-F}$ & 本项目近似实现 \\
+冯·诺依曼熵 & $S(\rho) = -\mathrm{Tr}(\rho\log\rho)$ & 衡量混合程度（未实现）\\
+\bottomrule
+\end{tabular}
+\end{center}
+
 \end{document}

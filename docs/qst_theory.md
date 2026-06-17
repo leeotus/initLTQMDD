@@ -337,6 +337,54 @@ QST 可以暴露量子门的误差模式。差的保真度意味着：
 
 ---
 
+## 8. 噪声信道集成
+
+### 8.1 量子噪声信道
+
+实际量子硬件中的噪声通过**量子信道**（Quantum Channel）描述，数学上表示为一组 **Kraus 算子** $\{K_k\}$ 对密度矩阵的完全正迹保持映射（CPTP map）：
+
+$$\mathcal{E}(\rho) = \sum_k K_k \rho K_k^\dagger, \quad \sum_k K_k^\dagger K_k = I$$
+
+**静态态假设**：QST 中噪声信道只作用一次，生成固定的含噪混合态 $\rho_{\text{noisy}} = \mathcal{E}(|\psi\rangle\langle\psi|)$，MLE 迭代不改变噪声。
+
+### 8.2 三种实现的噪声信道
+
+**去极化信道（Depolarizing, D）**：
+
+$$\mathcal{E}_D(\rho) = (1-p)\rho + \frac{p}{3}(X\rho X + Y\rho Y + Z\rho Z)$$
+
+Kraus 算子：$\sqrt{1-p}\,I$，$\sqrt{p/3}\,X$，$\sqrt{p/3}\,Y$，$\sqrt{p/3}\,Z$
+
+**振幅阻尼信道（Amplitude Damping, A）**：
+
+$$K_0 = \begin{pmatrix}1&0\\0&\sqrt{1-\gamma}\end{pmatrix}, \quad K_1 = \begin{pmatrix}0&\sqrt{\gamma}\\0&0\end{pmatrix}$$
+
+模拟能量耗散（$|1\rangle \to |0\rangle$ 的自发辐射），$\gamma$ 为跃迁概率。
+
+**相位翻转信道（Phase Flip, P）**：
+
+$$\mathcal{E}_P(\rho) = (1-p)\rho + p\,Z\rho Z$$
+
+Kraus 算子：$\sqrt{1-p}\,I$，$\sqrt{p}\,Z$
+
+### 8.3 含噪概率计算
+
+利用迹的线性性，避免显式构建密度矩阵：
+
+$$p(b,s) = \mathrm{Tr}\!\left(\Pi_{b,s}\,\mathcal{E}(|\psi\rangle\langle\psi|)\right) = \sum_{\mathbf{k}} \langle\psi|\,K_{\mathbf{k}}^\dagger\,\Pi_{b,s}\,K_{\mathbf{k}}\,|\psi\rangle$$
+
+其中 $\mathbf{k} = (k_1, \ldots, k_N)$ 遍历所有 qubit Kraus 分支的组合。
+
+### 8.4 与理想态的距离
+
+| 度量 | 公式 | 说明 |
+|------|------|------|
+| 保真度 | $F = \langle\psi\|\rho_{\text{noisy}}\|\psi\rangle$ | 最常用，本项目实现 |
+| 迹距离 | $D \approx \sqrt{1-F}$ | 本项目近似实现 |
+| 冯·诺依曼熵 | $S(\rho) = -\mathrm{Tr}(\rho\log\rho)$ | 衡量混合程度，纯态时 $S=0$ |
+
+---
+
 *文档生成时间：2026-06-17*  
 *项目路径：`~/workshop/initLTQMDD`*  
 *核心文件：`src/algorithms/QST.cpp`，`apps/qst_app.cpp`，`test/run_qst.sh`*

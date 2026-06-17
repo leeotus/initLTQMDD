@@ -444,10 +444,9 @@ static RunResult runModeB(
 // ============================================================
 int main(int argc, char** argv) {
     if (argc < 2) {
-        cerr << "Usage: ./qst <circuit_file> [nMeasBases] [nIterations] [modeB=1] [syncInterval=0] [syncThreshold=0]\n"
-             << "  syncInterval : trigger sync sifting every N MLE iters (0=off)\n"
-             << "  syncThreshold: trigger sync sifting when rho DD nodes > N (0=off)\n"
-             << "  Both conditions are OR'd; both 0 means no sync reordering.\n";
+        cerr << "Usage: ./qst <circuit> [bases] [iters] [modeB=1] [syncI=0] [syncT=0] [noise=] [nprob=0.01]\n"
+             << "  noise : D=depolarizing, A=amplitude damping, P=phase flip, empty=no noise\n"
+             << "  nprob : noise probability per qubit per channel application\n";
         return 1;
     }
 
@@ -459,13 +458,19 @@ int main(int argc, char** argv) {
     int syncInterval  = (argc > 5) ? atoi(argv[5]) : 0;
     // syncThreshold: rho DD 节点数超过此值时触发同步重排（0=关闭）
     int syncThreshold = (argc > 6) ? atoi(argv[6]) : 0;
+    // noiseType: 噪声信道类型（"" = 无噪声, "D" = 去极化, "A" = 振幅阻尼, "P" = 相位翻转）
+    string noiseType   = (argc > 7) ? string(argv[7]) : "";
+    // noiseProb: 噪声概率（每个 qubit 的单次信道作用强度）
+    double noiseProb   = (argc > 8) ? atof(argv[8]) : 0.01;
 
     auto qc = make_unique<qc::QuantumComputation>(cf);
     int N = (int)qc->getNqubits();
 
     cout << "\n=== QST: " << qc->getName() << " | N=" << N
          << " | bases=" << nM << " | iter=" << nIter
-         << " | sync=(" << syncInterval << "/" << syncThreshold << ") ===\n\n";
+         << " | sync=(" << syncInterval << "/" << syncThreshold << ")"
+         << (noiseType.empty() ? "" : (" | noise=" + noiseType + "@" + to_string(noiseProb)))
+         << " ===\n\n";
 
     // Generate Pauli bases.
     // If nM >= 3^N, enumerate all 3^N Pauli bases (complete tomography).
@@ -506,7 +511,45 @@ int main(int argc, char** argv) {
     dd::Edge psiR = ddRef->multiply(fRef, i0r);  ddRef->incRef(psiR);
     ddRef->decRef(i0r); ddRef->decRef(fRef);
 
-    // For each basis, enumerate all 2^N outcomes and compute p(b,s) = <psi|Pi_{b,s}|psi>
+    // ── 噪声信道应用 ──
+    // 含噪时 p(b,s) = Tr(Pi_{b,s} * E(|psi><psi|)) = sum_k <psi|K_k^† Pi K_k|psi>
+    // 利用线性性，对每个 Kraus 算子单独计算 <psi|K^† Pi K|psi>，求和即得含噪概率。
+    // 不需要显式构建密度矩阵，完全在 N 变量向量空间计算。
+    // 噪声只在此处确定性地影响频率计算，MLE 迭代本身不变。
+    bool usingNoise = !noiseType.empty();
+
+    // 预构建每个 qubit 的 Kraus 算子集合（在 N 量子比特空间中嵌入）
+    // noiseKrauses[q] = {K_0^(q), K_1^(q), ...}  （每个 K 是 N 变量矩阵 DD）
+    vector<vector<dd::Edge>> noiseKrauses(N);
+    if (usingNoise) {
+        array<short,dd::MAXN> kline; kline.fill(qc::LINE_DEFAULT);
+        for (int q = 0; q < N; ++q) {
+            kline.fill(qc::LINE_DEFAULT); kline[q] = qc::LINE_TARGET;
+            vector<array<dd::ComplexValue,4>> kMats;
+            if (noiseType.find('D') != string::npos) {
+                double sp = sqrt(1.0 - noiseProb), sq = sqrt(noiseProb / 3.0);
+                kMats.push_back({{{sp,0},{0,0},{0,0},{sp,0}}});
+                kMats.push_back({{{0,0},{sq,0},{sq,0},{0,0}}});
+                kMats.push_back({{{0,0},{0,-sq},{0,sq},{0,0}}});
+                kMats.push_back({{{sq,0},{0,0},{0,0},{-sq,0}}});
+            } else if (noiseType.find('A') != string::npos) {
+                double g = noiseProb;
+                kMats.push_back({{{1,0},{0,0},{0,0},{sqrt(1-g),0}}});
+                kMats.push_back({{{0,0},{sqrt(g),0},{0,0},{0,0}}});
+            } else if (noiseType.find('P') != string::npos) {
+                double sp = sqrt(1.0 - noiseProb), sq = sqrt(noiseProb);
+                kMats.push_back({{{sp,0},{0,0},{0,0},{sp,0}}});
+                kMats.push_back({{{sq,0},{0,0},{0,0},{-sq,0}}});
+            }
+            for (auto& m : kMats) {
+                dd::Edge K = ddRef->makeGateDD(m, N, kline); ddRef->incRef(K);
+                noiseKrauses[q].push_back(K);
+            }
+        }
+        cout << "  Noise channel: type=" << noiseType << " prob=" << noiseProb << "\n";
+    }
+
+    // For each basis, enumerate all 2^N outcomes and compute p(b,s) = Tr(Pi_{b,s} * rhoTrue)
     // validSeq/freqsA accumulate (basis,outcome) pairs with p > eps
     vector<pair<vector<qc::QST::MeasurementBasis::Basis>,vector<int>>> validSeq;
     vector<double> freqsA;
@@ -521,11 +564,53 @@ int main(int argc, char** argv) {
 
             dd::Edge proj = buildProjN(ddRef, N, basisList[k], bits);
             ddRef->incRef(proj);
-            // p = <psi|Pi|psi>: use Tr(Pi * |psi><psi|) = <psi|Pi|psi>
-            dd::Edge Pp = ddRef->multiply(proj, psiR); ddRef->incRef(Pp);
-            dd::ComplexValue ip = ddRef->innerProduct(psiR, Pp);
-            ddRef->decRef(Pp); ddRef->decRef(proj);
-            double prob = ip.r;
+            double prob = 0.0;
+            if (usingNoise) {
+                // 含噪: p = sum_{k1,k2,...,kN} <psi|K_{1,k1}^† ... K_{N,kN}^† Pi K_{N,kN} ... K_{1,k1}|psi>
+                // 各 qubit 独立：p = sum_{k1} sum_{k2} ... sum_{kN} <psi|K^† Pi K|psi>
+                // 等价于：先对 psi 施加所有 qubit 的 Kraus，再求内积
+                // 简化实现：枚举所有 Kraus 组合（对少量 qubit 可行）
+                // 对于 N qubit 且每 qubit m 个 Kraus：m^N 个组合
+                // 此处用递归张量积方式：逐 qubit 累加
+                // 构建 K_total = K_{N-1}^(N-1) ⊗ ... ⊗ K_0^(0) 并对 psi 作用
+                // 简化：构建联合态 sum_{combo} K_combo|psi> 并用 innerProduct
+                // 最高效实现：p = <psi| K_N^† ... K_1^† Pi K_1 ... K_N |psi>  分层累积
+                vector<dd::Edge> noisyPsis; // K_combo * |psi> for all Kraus combinations
+                noisyPsis.push_back(psiR); ddRef->incRef(psiR);
+                // 逐 qubit 扩展 Kraus 作用
+                for (int q = 0; q < N; ++q) {
+                    vector<dd::Edge> newPsis;
+                    for (auto& Kq : noiseKrauses[q]) {
+                        for (auto& psi_prev : noisyPsis) {
+                            dd::Edge psi_new = ddRef->multiply(Kq, psi_prev); ddRef->incRef(psi_new);
+                            newPsis.push_back(psi_new);
+                        }
+                    }
+                    for (auto& p : noisyPsis) ddRef->decRef(p);
+                    ddRef->garbageCollect();
+                    noisyPsis = newPsis;
+                }
+                // p = sum_combo <psi_noisy|Pi|psi_noisy> / norm
+                // 注意：此处每个 K_combo|psi> 对应一个 Kraus 分支
+                // 正确公式：p = sum_combo ||K_combo|psi>||^2 * <hat_psi_combo|Pi|hat_psi_combo>
+                // = sum_combo <psi|K†_combo Pi K_combo|psi>
+                // 用 innerProduct(noisyPsi, Pi * noisyPsi) 即可
+                for (auto& psi_k : noisyPsis) {
+                    dd::Edge PiPsi = ddRef->multiply(proj, psi_k); ddRef->incRef(PiPsi);
+                    dd::ComplexValue ip = ddRef->innerProduct(psi_k, PiPsi);
+                    ddRef->decRef(PiPsi);
+                    prob += ip.r;
+                }
+                for (auto& p : noisyPsis) ddRef->decRef(p);
+                ddRef->garbageCollect();
+            } else {
+                // 纯态: p = <psi|Pi|psi>
+                dd::Edge Pp = ddRef->multiply(proj, psiR); ddRef->incRef(Pp);
+                dd::ComplexValue ip = ddRef->innerProduct(psiR, Pp);
+                ddRef->decRef(Pp);
+                prob = ip.r;
+            }
+            ddRef->decRef(proj);
             if(prob > 1e-10){
                 freqsA.push_back(prob);
                 validSeq.push_back({basisList[k], bits});
@@ -534,7 +619,11 @@ int main(int argc, char** argv) {
     }
     // Normalize frequencies so sum = 1
     { double s=0; for(auto& f:freqsA) s+=f; if(s>0) for(auto& f:freqsA) f/=s; }
-    ddRef->decRef(psiR); ddRef->garbageCollect();
+    ddRef->decRef(psiR);
+    // 清理噪声 Kraus 算子
+    for (auto& kq : noiseKrauses)
+        for (auto& K : kq) ddRef->decRef(K);
+    ddRef->garbageCollect();
 
     cout << "  Valid measurement bases: " << validSeq.size() << " / " << totalOutcomes << "\n";
     { double mn=1e9,mx=0; for(auto& f:freqsA){mn=std::min(mn,f);mx=std::max(mx,f);}

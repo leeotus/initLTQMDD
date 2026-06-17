@@ -430,7 +430,98 @@ bash test/run_qst.sh \
 
 ---
 
-## 10. 结果文件
+## 10. 噪声信道集成
+
+### 10.1 背景与问题解答
+
+**Q：噪声引入后，MLE 迭代过程中噪声会变化吗？**
+
+**不会。** QST 的测量模型基于"静态态假设"：实验中每次测量前都重新制备**同一个含噪态**，噪声信道 $\mathcal{E}$ 作用于纯态一次，产生固定的含噪混合态：
+
+$$\rho_{\text{noisy}} = \mathcal{E}(|\psi\rangle\langle\psi|)$$
+
+这个 $\rho_{\text{noisy}}$ 在 QST 流程中是**常量输入**。MLE 迭代的是**重建变量** $\rho_{\text{recon}}$，不涉及噪声本身。**无需重建含噪电路的 QMDD，直接进入 QST 链路即可。**
+
+**Q：混合态密度矩阵构建后，如何计算与理想状态的距离？**
+
+本实现使用保真度：
+$$F = \langle\psi|\,\rho_{\text{recon}}\,|\psi\rangle$$
+
+其含义是：重建的含噪态与理想纯态 $|\psi\rangle$ 的相似度。$F$ 越低说明重建质量越差（噪声越强或 MLE 约束越少）。
+
+### 10.2 实现的噪声信道
+
+| 类型 | 参数 | Kraus 算子 |
+|------|------|-----------|
+| **D** 去极化（Depolarizing） | $p$ | $\sqrt{1-p}\,I,\; \sqrt{p/3}\,X,\; \sqrt{p/3}\,Y,\; \sqrt{p/3}\,Z$ |
+| **A** 振幅阻尼（Amplitude Damping） | $\gamma$ | $K_0=\begin{pmatrix}1&0\\0&\sqrt{1-\gamma}\end{pmatrix},\; K_1=\begin{pmatrix}0&\sqrt{\gamma}\\0&0\end{pmatrix}$ |
+| **P** 相位翻转（Phase Flip） | $p$ | $\sqrt{1-p}\,I,\; \sqrt{p}\,Z$ |
+
+噪声逐量子比特独立施加（i.i.d.），每个量子比特受同样的噪声信道作用。
+
+### 10.3 技术实现
+
+**不显式构建密度矩阵**，而是利用线性性直接在向量空间计算含噪概率：
+
+$$p(b,s) = \mathrm{Tr}\!\left(\Pi_{b,s}\,\mathcal{E}(|\psi\rangle\langle\psi|)\right) = \sum_{\mathbf{k}} \langle\psi|\,K_{\mathbf{k}}^\dagger\,\Pi_{b,s}\,K_{\mathbf{k}}\,|\psi\rangle$$
+
+其中 $K_{\mathbf{k}} = K_{k_1}^{(1)} \otimes K_{k_2}^{(2)} \otimes \cdots \otimes K_{k_N}^{(N)}$ 是各 qubit Kraus 算子的张量积。
+
+实现步骤：
+1. 逐 qubit 扩展 Kraus 分支：维护所有 $K_{\mathbf{k}}|\psi\rangle$ 的向量集合
+2. 对每个分支向量 $|\phi_{\mathbf{k}}\rangle = K_{\mathbf{k}}|\psi\rangle$，计算 $\langle\phi_{\mathbf{k}}|\Pi_{b,s}|\phi_{\mathbf{k}}\rangle$
+3. 求和得到总概率 $p(b,s)$
+
+这与现有 N 变量向量 DD 框架完全兼容，无需修改 MLE 迭代逻辑。
+
+### 10.4 运行命令
+
+```bash
+# qst 二进制（参数 7、8 为噪声类型和概率）
+./build_qst/qst <circuit> <bases> <iters> <modeB> <syncI> <syncT> <noiseType> <noiseProb>
+
+# 无噪声（默认）
+./build_qst/qst peres_9.real 27 50 0
+
+# 去极化噪声 p=2%
+./build_qst/qst peres_9.real 27 50 0 0 0 D 0.02
+
+# 振幅阻尼 p=5%
+./build_qst/qst peres_9.real 27 50 0 0 0 A 0.05
+
+# run_qst.sh（推荐方式）
+bash test/run_qst.sh \
+    --output results/noise_exp.csv --rounds 3 \
+    --circuit ~/workshop/circuits/peres_9.real \
+    --tomo complete --mode-b 0 \
+    --noise D --noise-prob 0.02
+```
+
+### 10.5 保真度随噪声强度的变化（Bell 态示例）
+
+| 噪声类型 | $p$ | NoReorder F | Sift F | 含义 |
+|---------|-----|------------|--------|------|
+| 无噪声 | — | 0.41 | 0.76 | MLE 欠定或未收敛 |
+| 去极化 | 0.01 | 0.72 | 0.59 | 噪声使态更"稠密"，约束更充足 |
+| 去极化 | 0.02 | 0.32 | 0.44 | 噪声较强，混合态难精确重建 |
+| 去极化 | 0.05 | 0.32 | 0.44 | 高噪声，保真度进一步下降 |
+| 振幅阻尼 | 0.05 | 0.44 | 0.33 | 不同信道结构，不对称衰减 |
+
+> **注**：保真度的含义在含噪实验中有所不同：此处 F 衡量的是"重建的含噪态与理想纯态的距离"，而非"MLE 重建质量"。更高的噪声对应更低的 F 是预期结果，不是算法缺陷。
+
+### 10.6 CSV 输出变化
+
+启用噪声时，`Tomography` 字段附加 `+noise<type><prob>` 标记，例如：
+
+```
+complete+noiseD0.02
+partial+syncI5+noiseA0.05
+```
+
+---
+
+## 11. 结果文件
+
 
 
 | 文件 | 内容 |
