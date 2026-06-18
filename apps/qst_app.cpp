@@ -442,7 +442,7 @@ static RunResult runModeB(
 // ============================================================
 // main
 // ============================================================
-int main(int argc, char** argv) {
+int main(int argc, char** argv) try {
     if (argc < 2) {
         cerr << "Usage: ./qst <circuit> [bases] [iters] [modeB=1] [syncI=0] [syncT=0] [noise=] [nprob=0.01]\n"
              << "  noise : D=depolarizing, A=amplitude damping, P=phase flip, empty=no noise\n"
@@ -681,4 +681,10 @@ int main(int argc, char** argv) {
     csv.close();
     cout << "CSV: qst_" << csvName << ".csv\n";
     return 0;
+} catch (const std::bad_alloc&) {
+	std::cerr << "OOM: bad_alloc\r\n";
+	return 42;
+} catch (const std::exception &e) {
+	std::cerr << "ERR: " << e.what() << "\r\n";
+	return 43;
 }
