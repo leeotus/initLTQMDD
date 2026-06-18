@@ -5,6 +5,7 @@
 # 用法:
 #   bash test/run_qst.sh --help
 #   bash test/run_qst.sh --output <csv> --rounds <N> --circuit <file> [选项...]
+#   bash test/run_qst.sh --output <csv> --rounds <N> --circuit <dir>  [选项...]
 #
 # ────────────────────────────────────────────────────────────────
 # 必需参数
@@ -17,8 +18,9 @@
 #       每个策略运行 N 轮，对所有成功轮取平均值。
 #       失败轮（超时/OOM/错误）不计入平均，对应结果记 "-"。
 #
-#   --circuit <file>
+#   --circuit <file|dir>
 #       量子电路文件路径，支持 .real（RevLib 格式）和 .qasm（OpenQASM）。
+#       若传入目录，则自动处理目录内所有 .real 文件。
 #
 # ────────────────────────────────────────────────────────────────
 # 层析策略参数
@@ -124,7 +126,7 @@
 #   ──────────────────────────────────────────────────────────────
 #   --output <path>    （必需）        输出CSV文件路径（追加模式）
 #   --rounds <N>       （必需）        运行轮次，取平均值
-#   --circuit <file>   （必需）        量子电路文件 (.real/.qasm)
+#   --circuit <file|dir> （必需）      量子电路文件(.real/.qasm)或目录
 #   ──────────────────────────────────────────────────────────────
 #   --strategy <name>  all             Sifting策略
 #                                      all/NoReorder/Sift/LBSift/
@@ -171,6 +173,8 @@
 #   RhoSize      : 最终 ρ 的 DD 节点数（Sifting压缩后）
 #   PeakDD       : MLE过程峰值 DD 节点数（内存占用指标）
 #   TimeMs       : 总耗时（毫秒，含建图+MLE+Sifting+保真度计算）
+#   MaxRSS_MB    : 进程最大物理内存（MB），多轮取平均
+#   TotalTimeSec : 脚本处理该电路的总耗时（秒）
 #
 # ────────────────────────────────────────────────────────────────
 # 使用示例
@@ -242,20 +246,11 @@
 #         --tomo complete --mode-b 0 \
 #         --noise "$NOISE" --noise-prob 0.03
 #   done
-##   # 6. 批量多电路追加到同一 CSV（常用模式）
-#   for C in ~/workshop/circuits/3_17_13.real \
-#             ~/workshop/circuits/4_49_16.real \
-#             ~/workshop/circuits/4gt4-v0_73.real; do
-#     bash test/run_qst.sh \
-#         --output results/batch.csv --rounds 1 \
-#         --circuit "$C" --mode-b 0 --timeout 300
-#   done
 #
-#   # 7. 只测单个策略（加快速验证）
+#   # 11. 目录模式：处理文件夹内所有 .real 文件
 #   bash test/run_qst.sh \
-#       --output results/quick.csv --rounds 1 \
-#       --circuit ~/workshop/circuits/peres_9.real \
-#       --strategy IGSift
+#       --output results/q3_batch.csv --rounds 5 \
+#       --circuit ./assets/q3 --strategy IGSift --tomo complete --mode-b 0
 #==============================================================================
 
 set -o pipefail
@@ -321,8 +316,8 @@ done
 if [ -z "$OUTPUT_CSV" ] || [ -z "$ROUNDS" ] || [ -z "$CIRCUIT" ]; then
     echo "错误: 缺少必需参数 (--output, --rounds, --circuit)"; exit 1
 fi
-if [ ! -f "$CIRCUIT" ]; then
-    echo "错误: 电路文件不存在: $CIRCUIT"; exit 1
+if [ ! -f "$CIRCUIT" ] && [ ! -d "$CIRCUIT" ]; then
+    echo "错误: 电路文件或目录不存在: $CIRCUIT"; exit 1
 fi
 if ! [[ "$TOMO_ARG" =~ ^(complete|partial|auto)$ ]]; then
     echo "错误: --tomo 只能是 complete / partial / auto"; exit 1
@@ -345,94 +340,7 @@ else
     RUN_STRATS=("$STRATEGY")
 fi
 
-# ============================================================
-# 解析量子比特数
-# ============================================================
-CIRCUIT_NAME=$(basename "$CIRCUIT" | sed 's/\.[^.]*$//')
-
-NQUBITS=$(grep "^\.numvars" "$CIRCUIT" 2>/dev/null | head -1 | awk '{print $2}')
-if [ -z "$NQUBITS" ]; then
-    NQUBITS=$(grep -E "^qreg" "$CIRCUIT" 2>/dev/null | grep -oP '\[\K[0-9]+' \
-              | awk '{s+=$1} END{print s}')
-fi
-if [ -z "$NQUBITS" ] || ! [[ "$NQUBITS" =~ ^[0-9]+$ ]]; then
-    NQUBITS=$("$QST_BIN" "$CIRCUIT" 1 1 2>/dev/null | grep -oP 'N=\K[0-9]+' | head -1)
-    [ -z "$NQUBITS" ] && NQUBITS="?"
-fi
-
-# ============================================================
-# 决定层析类型 / bases / iters / mode-b
-# ============================================================
-POW3N="?"
-TOMO_TYPE="partial"
-
-if [[ "$NQUBITS" =~ ^[0-9]+$ ]]; then
-    POW3N=$(pow3 "$NQUBITS")
-
-    # --- 确定层析类型 ---
-    if [ "$TOMO_ARG" = "complete" ]; then
-        TOMO_TYPE="complete"
-    elif [ "$TOMO_ARG" = "partial" ]; then
-        TOMO_TYPE="partial"
-    else
-        # auto: N<=4 完整，N>=5 局部
-        [ "$NQUBITS" -le 4 ] && TOMO_TYPE="complete" || TOMO_TYPE="partial"
-    fi
-
-    # --- bases ---
-    if [ "$BASES_ARG" = "auto" ]; then
-        if [ "$TOMO_TYPE" = "complete" ]; then
-            BASES_ARG=$POW3N
-        else
-            BASES_ARG=50    # 局部层析默认 50 个随机基
-        fi
-    else
-        # 用户明确指定数字：若 >= 3^N 则实际是完整层析
-        if [[ "$BASES_ARG" =~ ^[0-9]+$ ]] && [ "$BASES_ARG" -ge "$POW3N" ]; then
-            TOMO_TYPE="complete"
-        fi
-    fi
-
-    # --- iters ---
-    if [ "$ITERS_ARG" = "auto" ]; then
-        [ "$NQUBITS" -le 4 ] && ITERS_ARG=50 || ITERS_ARG=30
-    fi
-
-    # --- mode-b ---
-    if [ "$MODE_B_ARG" = "auto" ]; then
-        [ "$NQUBITS" -le 5 ] && MODE_B_ARG=1 || MODE_B_ARG=0
-    fi
-else
-    [ "$BASES_ARG" = "auto" ] && BASES_ARG=30
-    [ "$ITERS_ARG" = "auto" ] && ITERS_ARG=50
-    [ "$MODE_B_ARG" = "auto" ] && MODE_B_ARG=1
-fi
-
 MEM_LIMIT_KB=$((MEM_LIMIT_MB * 1024))
-
-# ============================================================
-# 打印配置
-# ============================================================
-echo "=============================================="
-echo "  QST 实验脚本"
-echo "=============================================="
-echo "  电路:         $CIRCUIT_NAME (${NQUBITS}Q)"
-  echo "  层析类型:     $TOMO_TYPE  (3^N=${POW3N}, 实际基数=${BASES_ARG})"
-  echo "  MLE 迭代:     $ITERS_ARG"
-  echo "  同步重排:     interval=${SYNC_INTERVAL} threshold=${SYNC_THRESHOLD}  (均为0则不重排)"
-  if [ -n "$NOISE_TYPE" ]; then
-    echo "  噪声信道:     type=${NOISE_TYPE} prob=${NOISE_PROB}"
-  else
-    echo "  噪声信道:     无（理想纯态）"
-  fi
-echo "  Mode B:       $MODE_B_ARG  (0=禁用, 1=启用)"
-echo "  策略:         $STRATEGY"
-echo "  轮次:         $ROUNDS"
-echo "  超时:         ${TIMEOUT_SEC}s/轮  (超时记 \"-\")"
-echo "  内存限制:     ${MEM_LIMIT_MB}MB"
-echo "  输出CSV:      $OUTPUT_CSV"
-echo "=============================================="
-echo ""
 
 # ============================================================
 # CSV 表头（首次创建）
@@ -440,119 +348,247 @@ echo ""
 OUTDIR=$(dirname "$OUTPUT_CSV")
 mkdir -p "$OUTDIR"
 if [ ! -f "$OUTPUT_CSV" ]; then
-    echo "Circuit,NQubits,Tomography,Strategy,MeasBases,ValidBases,Fidelity,TraceDistance,RhoSize,PeakDD,TimeMs" \
+    echo "Circuit,NQubits,Tomography,Strategy,MeasBases,ValidBases,Fidelity,TraceDistance,RhoSize,PeakDD,TimeMs,MaxRSS_MB,TotalTimeSec" \
         > "$OUTPUT_CSV"
 fi
 
-
 # ============================================================
-# 主循环：每轮统一运行一次 qst（输出全部策略），各策略从同一 CSV 读
+# run_one_circuit — 处理单个电路文件的核心函数
 # ============================================================
+run_one_circuit() {
+    local CIRCUIT_FILE="$1"
+    if [ ! -f "$CIRCUIT_FILE" ]; then
+        echo "  跳过: 文件不存在 $CIRCUIT_FILE" >&2
+        return 1
+    fi
 
-# TOMO_LABEL（含 sync 标记）
-TOMO_LABEL="$TOMO_TYPE"
-[ "${SYNC_INTERVAL:-0}"  -gt 0 ] 2>/dev/null && TOMO_LABEL="${TOMO_LABEL}+syncI${SYNC_INTERVAL}"
-[ "${SYNC_THRESHOLD:-0}" -gt 0 ] 2>/dev/null && TOMO_LABEL="${TOMO_LABEL}+syncT${SYNC_THRESHOLD}"
-[ -n "$NOISE_TYPE" ] && TOMO_LABEL="${TOMO_LABEL}+noise${NOISE_TYPE}${NOISE_PROB}"
+    local CIRCUIT_NAME
+    CIRCUIT_NAME=$(basename "$CIRCUIT_FILE" | sed 's/\.[^.]*$//')
 
-# 各策略的累加变量（关联数组）
-declare -A S_FID S_TD S_RHO S_PEAK S_TIME S_VALID S_MEAS S_CNT S_FAIL
-for strat in "${RUN_STRATS[@]}"; do
-    S_FID[$strat]=0; S_TD[$strat]=0; S_RHO[$strat]=0
-    S_PEAK[$strat]=0; S_TIME[$strat]=0
-    S_VALID[$strat]=0; S_MEAS[$strat]=0
-    S_CNT[$strat]=0; S_FAIL[$strat]=true
-done
-GLOBAL_VB="-"; GLOBAL_MEAS="-"
+    # ── 解析 qubit 数 ──
+    local NQUBITS
+    NQUBITS=$(grep "^\.numvars" "$CIRCUIT_FILE" 2>/dev/null | head -1 | awk '{print $2}')
+    if [ -z "$NQUBITS" ]; then
+        NQUBITS=$(grep -E "^qreg" "$CIRCUIT_FILE" 2>/dev/null | grep -oP '\[\K[0-9]+' \
+                  | awk '{s+=$1} END{print s}')
+    fi
+    if [ -z "$NQUBITS" ] || ! [[ "$NQUBITS" =~ ^[0-9]+$ ]]; then
+        NQUBITS=$("$QST_BIN" "$CIRCUIT_FILE" 1 1 2>/dev/null | grep -oP 'N=\K[0-9]+' | head -1)
+        [ -z "$NQUBITS" ] && NQUBITS="?"
+    fi
 
-for ((r=1; r<=ROUNDS; r++)); do
-    echo "  [轮 $r/$ROUNDS] 运行 qst..."
-    FULL_LOG="/tmp/qst_main_${CIRCUIT_NAME}_r${r}_$$.log"
+    # ── 确定层析类型 / bases / iters / mode-b ──
+    local POW3N="?"
+    local TOMO_TYPE="partial"
+
+    if [[ "$NQUBITS" =~ ^[0-9]+$ ]]; then
+        POW3N=$(pow3 "$NQUBITS")
+
+        if [ "$TOMO_ARG" = "complete" ]; then
+            TOMO_TYPE="complete"
+        elif [ "$TOMO_ARG" = "partial" ]; then
+            TOMO_TYPE="partial"
+        else
+            [ "$NQUBITS" -le 4 ] && TOMO_TYPE="complete" || TOMO_TYPE="partial"
+        fi
+
+        local BASES_ARG ITERS_ARG MODE_B_ARG
+        BASES_ARG="${SCRIPT_BASES_ARG:-auto}"
+        if [ "$BASES_ARG" = "auto" ]; then
+            [ "$TOMO_TYPE" = "complete" ] && BASES_ARG=$POW3N || BASES_ARG=50
+        elif [[ "$BASES_ARG" =~ ^[0-9]+$ ]] && [ "$BASES_ARG" -ge "$POW3N" ]; then
+            TOMO_TYPE="complete"
+        fi
+        ITERS_ARG="${SCRIPT_ITERS_ARG:-auto}"
+        [ "$ITERS_ARG" = "auto" ] && { [ "$NQUBITS" -le 4 ] && ITERS_ARG=50 || ITERS_ARG=30; }
+        MODE_B_ARG="${SCRIPT_MODE_B_ARG:-auto}"
+        [ "$MODE_B_ARG" = "auto" ] && { [ "$NQUBITS" -le 5 ] && MODE_B_ARG=1 || MODE_B_ARG=0; }
+    else
+        BASES_ARG="${SCRIPT_BASES_ARG:-30}"
+        ITERS_ARG="${SCRIPT_ITERS_ARG:-50}"
+        MODE_B_ARG="${SCRIPT_MODE_B_ARG:-1}"
+    fi
+
+    # ── 打印配置 ──
+    echo "=============================================="
+    echo "  QST 实验脚本"
+    echo "=============================================="
+    echo "  电路:         $CIRCUIT_NAME (${NQUBITS}Q)"
+    echo "  层析类型:     $TOMO_TYPE  (3^N=${POW3N}, 实际基数=${BASES_ARG})"
+    echo "  MLE 迭代:     $ITERS_ARG"
+    echo "  同步重排:     interval=${SYNC_INTERVAL} threshold=${SYNC_THRESHOLD}  (均为0则不重排)"
+    if [ -n "$NOISE_TYPE" ]; then
+        echo "  噪声信道:     type=${NOISE_TYPE} prob=${NOISE_PROB}"
+    else
+        echo "  噪声信道:     无（理想纯态）"
+    fi
+    echo "  Mode B:       $MODE_B_ARG  (0=禁用, 1=启用)"
+    echo "  策略:         $STRATEGY"
+    echo "  轮次:         $ROUNDS"
+    echo "  超时:         ${TIMEOUT_SEC}s/轮  (超时记 \"-\")"
+    echo "  内存限制:     ${MEM_LIMIT_MB}MB"
+    echo "  输出CSV:      $OUTPUT_CSV"
+    echo "=============================================="
+    echo ""
+
+    # ── TOMO_LABEL ──
+    local TOMO_LABEL="$TOMO_TYPE"
+    [ "${SYNC_INTERVAL:-0}" -gt 0 ] 2>/dev/null && TOMO_LABEL="${TOMO_LABEL}+syncI${SYNC_INTERVAL}"
+    [ "${SYNC_THRESHOLD:-0}" -gt 0 ] 2>/dev/null && TOMO_LABEL="${TOMO_LABEL}+syncT${SYNC_THRESHOLD}"
+    [ -n "$NOISE_TYPE" ] && TOMO_LABEL="${TOMO_LABEL}+noise${NOISE_TYPE}${NOISE_PROB}"
+
+    # ── 关联数组 ──
+    declare -A S_FID S_TD S_RHO S_PEAK S_TIME S_VALID S_MEAS S_CNT S_FAIL S_RSS
+    for strat in "${RUN_STRATS[@]}"; do
+        S_FID[$strat]=0; S_TD[$strat]=0; S_RHO[$strat]=0
+        S_PEAK[$strat]=0; S_TIME[$strat]=0
+        S_VALID[$strat]=0; S_MEAS[$strat]=0
+        S_CNT[$strat]=0; S_FAIL[$strat]=true
+        S_RSS[$strat]=0
+    done
+    local GLOBAL_VB="-"; local GLOBAL_MEAS="-"
+    local SCRIPT_START_SEC=$SECONDS
+
+    # ── 运行 ROUNDS 轮 ──
+    for ((r=1; r<=ROUNDS; r++)); do
+        echo "  [轮 $r/$ROUNDS] 运行 qst..."
+        local FULL_LOG="/tmp/qst_main_${CIRCUIT_NAME}_r${r}_$$.log"
+        local TIME_LOG="/tmp/qst_time_${CIRCUIT_NAME}_r${r}_$$.log"
 
         (
             ulimit -v "$MEM_LIMIT_KB" 2>/dev/null
-            timeout "${TIMEOUT_SEC}" "$QST_BIN" \
-                "$CIRCUIT" "$BASES_ARG" "$ITERS_ARG" "$MODE_B_ARG" \
+            /usr/bin/time -v -o "$TIME_LOG" timeout "${TIMEOUT_SEC}" "$QST_BIN" \
+                "$CIRCUIT_FILE" "$BASES_ARG" "$ITERS_ARG" "$MODE_B_ARG" \
                 "$SYNC_INTERVAL" "$SYNC_THRESHOLD" \
                 "$NOISE_TYPE" "$NOISE_PROB" 2>/dev/null
         ) > "$FULL_LOG" 2>&1
-    EXIT_CODE=$?
-
-    if [ $EXIT_CODE -ne 0 ]; then
-        case $EXIT_CODE in
-            124) echo "    超时 (${TIMEOUT_SEC}s)" ;;
-            137|139) echo "    内存超出/段错误" ;;
-            *) echo "    运行失败 (exit=$EXIT_CODE)" ;;
-        esac
-        rm -f "$FULL_LOG"; continue
-    fi
-
-    # 定位 qst_app 生成的 CSV
-    SAFE_NAME=$(echo "$CIRCUIT" | sed 's|/|_|g; s|\.[^.]*$||')
-    QST_CSV=""
-    [ -f "qst_${SAFE_NAME}.csv"     ] && QST_CSV="qst_${SAFE_NAME}.csv"
-    [ -z "$QST_CSV" ] && [ -f "qst_${CIRCUIT_NAME}.csv" ] && QST_CSV="qst_${CIRCUIT_NAME}.csv"
-    [ -z "$QST_CSV" ] && QST_CSV=$(ls qst_*${CIRCUIT_NAME}*.csv 2>/dev/null | head -1)
-
-    if [ -z "$QST_CSV" ] || [ ! -f "$QST_CSV" ]; then
-        echo "    未找到 QST 输出CSV"; rm -f "$FULL_LOG"; continue
-    fi
-
-    # 解析 ValidBases
-    VB=$(grep "Valid measurement bases:" "$FULL_LOG" | grep -oP '\d+(?= /)' | head -1)
-    MB=$(grep "Valid measurement bases:" "$FULL_LOG" | grep -oP '(?<= / )\d+' | head -1)
-    [ -n "$VB" ] && GLOBAL_VB="$VB"
-    [ -n "$MB" ] && GLOBAL_MEAS="$MB"
-
-    # 逐策略读取
-    for strat in "${RUN_STRATS[@]}"; do
-        LINE=$(grep "^${strat}," "$QST_CSV" 2>/dev/null | head -1)
-        if [ -z "$LINE" ]; then
-            echo "    [$strat] 未在 CSV 中找到"
-            continue
+        local EXIT_CODE=$?
+        local RSS_MB=0
+        if [ -f "$TIME_LOG" ]; then
+            RSS_MB=$(grep "Maximum resident set size" "$TIME_LOG" 2>/dev/null | awk '{printf "%.1f", $NF/1024}')
+            [ -z "$RSS_MB" ] && RSS_MB=0
+            rm -f "$TIME_LOG"
         fi
-        FID=$(echo "$LINE" | cut -d, -f2)
-        TD=$(echo  "$LINE" | cut -d, -f3)
-        RHO=$(echo "$LINE" | cut -d, -f4)
-        PEAK=$(echo "$LINE"| cut -d, -f5)
-        TM=$(echo  "$LINE" | cut -d, -f6)
-        echo "    [$strat] Fid=$FID Rho=$RHO Time=${TM}ms"
+        echo "    RSS: ${RSS_MB} MB"
 
-        S_FID[$strat]=$(echo  "${S_FID[$strat]} + $FID" | bc -l 2>/dev/null || echo "0")
-        S_TD[$strat]=$(echo   "${S_TD[$strat]}  + $TD"  | bc -l 2>/dev/null || echo "0")
-        S_RHO[$strat]=$((${S_RHO[$strat]}   + ${RHO:-0}))
-        S_PEAK[$strat]=$((${S_PEAK[$strat]} + ${PEAK:-0}))
-        S_TIME[$strat]=$(echo "${S_TIME[$strat]} + $TM" | bc -l 2>/dev/null || echo "0")
-        S_VALID[$strat]=$((${S_VALID[$strat]} + ${VB:-0}))
-        S_MEAS[$strat]=$((${S_MEAS[$strat]}  + ${MB:-0}))
-        S_CNT[$strat]=$((${S_CNT[$strat]} + 1))
-        S_FAIL[$strat]=false
+        if [ $EXIT_CODE -ne 0 ]; then
+            case $EXIT_CODE in
+                124) echo "    超时 (${TIMEOUT_SEC}s)" ;;
+                137|139) echo "    内存超出/段错误" ;;
+                *) echo "    运行失败 (exit=$EXIT_CODE)" ;;
+            esac
+            rm -f "$FULL_LOG"; continue
+        fi
+
+        # 定位 qst_app 生成的 CSV
+        local SAFE_NAME
+        SAFE_NAME=$(echo "$CIRCUIT_FILE" | sed 's|/|_|g; s|\.[^.]*$||')
+        local QST_CSV=""
+        [ -f "qst_${SAFE_NAME}.csv"        ] && QST_CSV="qst_${SAFE_NAME}.csv"
+        [ -z "$QST_CSV" ] && [ -f "qst_${CIRCUIT_NAME}.csv" ] && QST_CSV="qst_${CIRCUIT_NAME}.csv"
+        [ -z "$QST_CSV" ] && QST_CSV=$(ls qst_*${CIRCUIT_NAME}*.csv 2>/dev/null | head -1)
+
+        if [ -z "$QST_CSV" ] || [ ! -f "$QST_CSV" ]; then
+            echo "    未找到 QST 输出CSV"; rm -f "$FULL_LOG"; continue
+        fi
+
+        # 解析 ValidBases
+        local VB MB
+        VB=$(grep "Valid measurement bases:" "$FULL_LOG" | grep -oP '\d+(?= /)' | head -1)
+        MB=$(grep "Valid measurement bases:" "$FULL_LOG" | grep -oP '(?<= / )\d+' | head -1)
+        [ -n "$VB" ] && GLOBAL_VB="$VB"
+        [ -n "$MB" ] && GLOBAL_MEAS="$MB"
+
+        # 逐策略读取
+        for strat in "${RUN_STRATS[@]}"; do
+            local LINE
+            LINE=$(grep "^${strat}," "$QST_CSV" 2>/dev/null | head -1)
+            if [ -z "$LINE" ]; then
+                echo "    [$strat] 未在 CSV 中找到"
+                continue
+            fi
+            local FID TD RHO PEAK TM
+            FID=$(echo "$LINE" | cut -d, -f2)
+            TD=$(echo  "$LINE" | cut -d, -f3)
+            RHO=$(echo "$LINE" | cut -d, -f4)
+            PEAK=$(echo "$LINE"| cut -d, -f5)
+            TM=$(echo  "$LINE" | cut -d, -f6)
+            echo "    [$strat] Fid=$FID Rho=$RHO Time=${TM}ms"
+
+            S_FID[$strat]=$(awk "BEGIN{printf \"%.6f\", ${S_FID[$strat]} + $FID}")
+            S_TD[$strat]=$(awk "BEGIN{printf \"%.6f\", ${S_TD[$strat]} + $TD}")
+            S_RHO[$strat]=$((${S_RHO[$strat]}   + ${RHO:-0}))
+            S_PEAK[$strat]=$((${S_PEAK[$strat]} + ${PEAK:-0}))
+            S_TIME[$strat]=$(awk "BEGIN{printf \"%.2f\", ${S_TIME[$strat]} + $TM}")
+            S_VALID[$strat]=$((${S_VALID[$strat]} + ${VB:-0}))
+            S_MEAS[$strat]=$((${S_MEAS[$strat]}  + ${MB:-0}))
+            S_CNT[$strat]=$((${S_CNT[$strat]} + 1))
+            S_RSS[$strat]=$(awk "BEGIN{printf \"%.1f\", ${S_RSS[$strat]} + ${RSS_MB:-0}}")
+            S_FAIL[$strat]=false
+        done
+
+        rm -f "$QST_CSV" "$FULL_LOG"
+        echo ""
     done
 
-    rm -f "$QST_CSV" "$FULL_LOG"
+    # ── 计算本轮总耗时 ──
+    local SCRIPT_TOTAL_SEC=$(( SECONDS - SCRIPT_START_SEC ))
+
+    # ── 写各策略结果行 ──
+    for strat in "${RUN_STRATS[@]}"; do
+        local n=${S_CNT[$strat]}
+        if ${S_FAIL[$strat]} || [ "$n" -eq 0 ]; then
+            echo "  [$strat] 所有轮次均失败"
+            echo "${CIRCUIT_NAME},${NQUBITS},${TOMO_LABEL},${strat},${BASES_ARG},-,-,-,-,-,-,-,${SCRIPT_TOTAL_SEC}" \
+                >> "$OUTPUT_CSV"
+        else
+            local AVG_FID AVG_TD AVG_RHO AVG_PEAK AVG_TIME AVG_VB AVG_MB AVG_RSS
+            AVG_FID=$(awk "BEGIN{printf \"%.6f\", ${S_FID[$strat]} / $n}")
+            AVG_TD=$(awk "BEGIN{printf \"%.6f\", ${S_TD[$strat]} / $n}")
+            AVG_RHO=$((${S_RHO[$strat]}  / n))
+            AVG_PEAK=$((${S_PEAK[$strat]} / n))
+            AVG_TIME=$(awk "BEGIN{printf \"%.2f\", ${S_TIME[$strat]} / $n}")
+            AVG_VB=$((${S_VALID[$strat]} / n))
+            AVG_MB=$((${S_MEAS[$strat]}  / n))
+            AVG_RSS=$(awk "BEGIN{printf \"%.1f\", ${S_RSS[$strat]} / $n}")
+            echo "${CIRCUIT_NAME},${NQUBITS},${TOMO_LABEL},${strat},${AVG_MB},${AVG_VB},${AVG_FID},${AVG_TD},${AVG_RHO},${AVG_PEAK},${AVG_TIME},${AVG_RSS},${SCRIPT_TOTAL_SEC}" \
+                >> "$OUTPUT_CSV"
+            echo "  [$strat] 平均保真度=$AVG_FID  有效轮次=$n/$ROUNDS  RSS=${AVG_RSS}MB  总耗时=${SCRIPT_TOTAL_SEC}s"
+        fi
+    done
+
     echo ""
-done
+    echo "  本电路耗时: ${SCRIPT_TOTAL_SEC}s"
+    echo "  结果已写入: $OUTPUT_CSV"
+}
 
-# 写各策略结果行
-for strat in "${RUN_STRATS[@]}"; do
-    n=${S_CNT[$strat]}
-    if ${S_FAIL[$strat]} || [ "$n" -eq 0 ]; then
-        echo "  [$strat] 所有轮次均失败"
-        echo "${CIRCUIT_NAME},${NQUBITS},${TOMO_LABEL},${strat},${BASES_ARG},-,-,-,-,-,-" \
-            >> "$OUTPUT_CSV"
-    else
-        AVG_FID=$(echo  "scale=6; ${S_FID[$strat]}  / $n" | bc -l 2>/dev/null || echo "0")
-        AVG_TD=$(echo   "scale=6; ${S_TD[$strat]}   / $n" | bc -l 2>/dev/null || echo "0")
-        AVG_RHO=$((${S_RHO[$strat]}  / n))
-        AVG_PEAK=$((${S_PEAK[$strat]} / n))
-        AVG_TIME=$(echo "scale=2; ${S_TIME[$strat]} / $n" | bc -l 2>/dev/null || echo "0")
-        AVG_VB=$((${S_VALID[$strat]} / n))
-        AVG_MB=$((${S_MEAS[$strat]}  / n))
-        echo "${CIRCUIT_NAME},${NQUBITS},${TOMO_LABEL},${strat},${AVG_MB},${AVG_VB},${AVG_FID},${AVG_TD},${AVG_RHO},${AVG_PEAK},${AVG_TIME}" \
-            >> "$OUTPUT_CSV"
-        echo "  [$strat] 平均保真度=$AVG_FID  有效轮次=$n/$ROUNDS"
+# ============================================================
+# 入口：判断 --circuit 是目录还是文件
+# ============================================================
+if [ -d "$CIRCUIT" ]; then
+    CIRCUIT_FILES=()
+    while IFS= read -r -d '' f; do
+        CIRCUIT_FILES+=("$f")
+    done < <(find "$CIRCUIT" -maxdepth 1 -name '*.real' -print0 | sort -z)
+    if [ ${#CIRCUIT_FILES[@]} -eq 0 ]; then
+        echo "错误: 目录中没有 .real 文件: $CIRCUIT"
+        exit 1
     fi
-done
-
-echo ""
-echo "  结果已写入: $OUTPUT_CSV"
+    echo "=============================================="
+    echo "  [目录模式] 找到 ${#CIRCUIT_FILES[@]} 个 .real 文件"
+    echo "  输出CSV: $OUTPUT_CSV"
+    echo "=============================================="
+    echo ""
+    OVERALL_START=$SECONDS
+    for cf in "${CIRCUIT_FILES[@]}"; do
+        echo "==== 处理: $(basename "$cf") ===="
+        run_one_circuit "$cf"
+        echo ""
+    done
+    OVERALL_SEC=$(( SECONDS - OVERALL_START ))
+    echo "=============================================="
+    echo "  全部完成! 总共 ${#CIRCUIT_FILES[@]} 个电路, 总耗时: ${OVERALL_SEC}s"
+    echo "=============================================="
+else
+    run_one_circuit "$CIRCUIT"
+fi
