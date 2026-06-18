@@ -478,16 +478,16 @@ int main(int argc, char** argv) try {
     mt19937 rng0(42);
     uniform_int_distribution<int> bd0(0,2);
 
-    int pow3N = 1;
+    long long pow3N = 1;
     for(int q=0;q<N;++q) pow3N *= 3;
 
     vector<vector<qc::QST::MeasurementBasis::Basis>> basisList;
     if(nM >= pow3N) {
         // Enumerate all 3^N Pauli bases
-        basisList.resize(pow3N);
-        for(int idx=0;idx<pow3N;++idx){
+        basisList.resize((size_t)pow3N);
+        for(long long idx=0;idx<pow3N;++idx){
             basisList[idx].resize(N);
-            int tmp=idx;
+            long long tmp=idx;
             for(int q=0;q<N;++q){ basisList[idx][q]=static_cast<qc::QST::MeasurementBasis::Basis>(tmp%3); tmp/=3; }
         }
         cout << "  Using all " << pow3N << " Pauli bases (complete tomography)\n";
