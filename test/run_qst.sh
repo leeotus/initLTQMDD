@@ -455,13 +455,26 @@ run_one_circuit() {
         local FULL_LOG="/tmp/qst_main_${CIRCUIT_NAME}_r${r}_$$.log"
         local TIME_LOG="/tmp/qst_time_${CIRCUIT_NAME}_r${r}_$$.log"
 
-        (
-            ulimit -v "$MEM_LIMIT_KB" 2>/dev/null
-            /usr/bin/time -v -o "$TIME_LOG" timeout "${TIMEOUT_SEC}" "$QST_BIN" \
-                "$CIRCUIT_FILE" "$BASES_ARG" "$ITERS_ARG" "$MODE_B_ARG" \
-                "$SYNC_INTERVAL" "$SYNC_THRESHOLD" \
-                "$NOISE_TYPE" "$NOISE_PROB" 2>/dev/null
-        ) > "$FULL_LOG" 2>&1
+        local MEM_LIMIT_BYTES=$(( MEM_LIMIT_MB * 1024 * 1024 ))
+        if systemd-run --version >/dev/null 2>&1 && systemctl --user >/dev/null 2>&1; then
+            systemd-run --user --scope \
+                --property="MemoryMax=${MEM_LIMIT_BYTES}" \
+                --property="MemorySwapMax=0" \
+                /usr/bin/time -v -o "$TIME_LOG" timeout "${TIMEOUT_SEC}" "$QST_BIN" \
+                    "$CIRCUIT_FILE" "$BASES_ARG" "$ITERS_ARG" "$MODE_B_ARG" \
+                    "$SYNC_INTERVAL" "$SYNC_THRESHOLD" \
+                    "$NOISE_TYPE" "$NOISE_PROB" \
+                > "$FULL_LOG" 2>&1
+        else
+            # ulimit -v 限制虚拟地址空间（非物理内存），对大规模 DD 过于严格，已禁用
+            # ulimit -v "$MEM_LIMIT_KB" 2>/dev/null
+            (
+                /usr/bin/time -v -o "$TIME_LOG" timeout "${TIMEOUT_SEC}" "$QST_BIN" \
+                    "$CIRCUIT_FILE" "$BASES_ARG" "$ITERS_ARG" "$MODE_B_ARG" \
+                    "$SYNC_INTERVAL" "$SYNC_THRESHOLD" \
+                    "$NOISE_TYPE" "$NOISE_PROB" 2>/dev/null
+            ) > "$FULL_LOG" 2>&1
+        fi
         local EXIT_CODE=$?
         local RSS_MB=0
         if [ -f "$TIME_LOG" ]; then
@@ -474,7 +487,7 @@ run_one_circuit() {
         if [ $EXIT_CODE -ne 0 ]; then
             case $EXIT_CODE in
                 124) echo "    超时 (${TIMEOUT_SEC}s)" ;;
-                137|139) echo "    内存超出/段错误" ;;
+                137|139) echo "    内存超出/段错误 (OOM-killer)" ;;
                 *) echo "    运行失败 (exit=$EXIT_CODE)" ;;
             esac
             rm -f "$FULL_LOG"; continue
